@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { Sparkles, ChevronDown, Check, X, Loader2, Zap, KeyRound } from 'lucide-react';
 import { issues as allIssues, projects } from '@/lib/mock-data';
 
@@ -27,6 +27,10 @@ export default function AIPage() {
   const [showPicker, setShowPicker] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [result, setResult] = useState<{ actionKey: string; text: string } | null>(null);
+
+  const [chatCommand, setChatCommand] = useState('/summary');
+  const [chatResult, setChatResult] = useState<string | null>(null);
+
   const [userApiKey, setUserApiKey] = useState(() => {
     if (typeof window === 'undefined') return '';
     return window.localStorage.getItem(API_KEY_STORAGE_KEY) ?? '';
@@ -74,6 +78,40 @@ export default function AIPage() {
     }
   }
 
+
+  async function runChatCommand(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedIssue || !chatCommand.trim()) return;
+    setLoading('chat');
+    setChatResult(null);
+
+    try {
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(userApiKey.trim() ? { 'x-user-api-key': userApiKey.trim() } : {}),
+        },
+        body: JSON.stringify({
+          command: chatCommand.trim(),
+          payload: { title: selectedIssue.title, description: selectedIssue.description },
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'AI command failed.');
+      }
+
+      const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+      setChatResult(suggestions.join('\n\n'));
+    } catch (error) {
+      setChatResult(error instanceof Error ? error.message : 'Failed to run command.');
+    } finally {
+      setLoading(null);
+    }
+  }
+
   const resultAction = result ? AI_ACTIONS.find((a) => a.key === result.actionKey) : null;
 
   return (
@@ -94,6 +132,29 @@ export default function AIPage() {
         />
         <p className="mt-1 text-[11px] text-slate-400">Use your own NVIDIA API key for this browser. It is stored locally and sent only with AI requests.</p>
       </div>
+
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Chat Commands</p>
+        <p className="mt-1 text-[11px] text-slate-400">Use /summary, /subtasks, /priority, /comment to trigger AI actions via chat.</p>
+        <form onSubmit={runChatCommand} className="mt-3 flex gap-2">
+          <input
+            value={chatCommand}
+            onChange={(e) => setChatCommand(e.target.value)}
+            placeholder="/summary"
+            className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={loading === 'chat' || !selectedIssueId}
+            className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {loading === 'chat' ? 'Running…' : 'Send'}
+          </button>
+        </form>
+        {chatResult && <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{chatResult}</p>}
+      </div>
+
 
       <div>{/* selector */}
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Analyzing Issue</p>
