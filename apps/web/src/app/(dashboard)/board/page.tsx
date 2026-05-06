@@ -63,6 +63,7 @@ const STATUS_ICON_COLOR: Record<IssueStatus, string> = {
 
 export default function BoardPage() {
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [orderedIds, setOrderedIds] = useState<string[]>([]);
   const [view, setView] = useState<ViewMode>('kanban');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<IssueStatus | null>(null);
@@ -73,13 +74,20 @@ export default function BoardPage() {
   useEffect(() => {
     fetch('/api/issues')
       .then((r) => r.json())
-      .then((data: Issue[]) => setIssues(data))
+      .then((data: Issue[]) => {
+        setIssues(data);
+        setOrderedIds(data.map((item) => item.id));
+      })
       .catch(() => {});
   }, []);
 
   const displayIssues = useMemo(
-    () => issues.map((i) => ({ ...i, status: localOverrides[i.id] ?? i.status })),
-    [issues, localOverrides],
+    () => {
+      const mapped = issues.map((i) => ({ ...i, status: localOverrides[i.id] ?? i.status }));
+      const rank = new Map(orderedIds.map((id, index) => [id, index]));
+      return [...mapped].sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+    },
+    [issues, localOverrides, orderedIds],
   );
 
   const grouped = useMemo(
@@ -120,6 +128,27 @@ export default function BoardPage() {
     return colKey === 'todo' || colKey === 'in_progress' || colKey === 'done' ? colKey : null;
   }
 
+  function reorderByTarget(sourceId: string, targetId: string | null, placeAfter: boolean) {
+    setOrderedIds((prev) => {
+      const list = prev.length ? [...prev] : issues.map((item) => item.id);
+      const from = list.indexOf(sourceId);
+      if (from === -1) return prev;
+      list.splice(from, 1);
+      if (!targetId) {
+        list.push(sourceId);
+        return list;
+      }
+      const baseIndex = list.indexOf(targetId);
+      if (baseIndex === -1) {
+        list.push(sourceId);
+        return list;
+      }
+      const insertAt = placeAfter ? baseIndex + 1 : baseIndex;
+      list.splice(insertAt, 0, sourceId);
+      return list;
+    });
+  }
+
   function clearLongPressTimer() {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
@@ -153,6 +182,11 @@ export default function BoardPage() {
     const activeId = touchDraggingId.current;
     if (!activeId) return;
     const touch = e.changedTouches[0];
+    const dropElement = touch ? document.elementFromPoint(touch.clientX, touch.clientY)?.closest<HTMLElement>('[data-issue-id]') : null;
+    if (dropElement && dropElement.dataset.issueId !== activeId) {
+      const rect = dropElement.getBoundingClientRect();
+      reorderByTarget(activeId, dropElement.dataset.issueId ?? null, touch.clientY > rect.top + rect.height / 2);
+    }
     const targetCol = touch ? detectColumnFromPoint(touch.clientX, touch.clientY) : dragOverCol;
     if (targetCol) {
       setLocalOverrides((prev) => ({ ...prev, [activeId]: targetCol }));
@@ -231,14 +265,24 @@ export default function BoardPage() {
                     return (
                       <div
                         key={issue.id}
+                        data-issue-id={issue.id}
                         draggable
                         onDragStart={() => onDragStart(issue.id)}
                         onDragEnd={onDragEnd}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (!draggingId || draggingId === issue.id) return;
+                          const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                          reorderByTarget(draggingId, issue.id, e.clientY > rect.top + rect.height / 2);
+                        }}
                         onTouchStart={(e) => onTouchStart(issue.id, e)}
                         onTouchMove={onTouchMove}
                         onTouchEnd={onTouchEnd}
                         onTouchCancel={onTouchEnd}
-                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all ${
+                        onContextMenu={(e) => e.preventDefault()}
+                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all touch-none ${
                           isDragging ? 'opacity-40 scale-95 rotate-1' : 'hover:-translate-y-0.5 hover:shadow-md'
                         }`}
                       >
