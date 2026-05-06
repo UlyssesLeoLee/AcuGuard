@@ -3,6 +3,7 @@ import { ChatOpenAI } from '@langchain/openai';
 
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'qwen/qwen3-235b-a22b';
+const NVIDIA_DEFAULT_API_KEY = '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';
 
 type AIAction = 'summary' | 'subtasks' | 'priority' | 'comment';
 
@@ -33,7 +34,7 @@ function pickApiKey(userProvidedApiKey?: string) {
   const envKey = process.env.NVIDIA_API_KEY?.trim();
   if (envKey) return envKey;
 
-  throw new Error('Missing NVIDIA API key. Add NVIDIA_API_KEY on server or provide your own API key in AI settings.');
+  return NVIDIA_DEFAULT_API_KEY;
 }
 
 function buildModel(apiKey: string) {

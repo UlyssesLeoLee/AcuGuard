@@ -21,6 +21,7 @@ const AI_ACTIONS: ActionDef[] = [
 ];
 
 const API_KEY_STORAGE_KEY = 'acuguard.user.nvidia_api_key';
+const DEFAULT_NVIDIA_API_KEY = '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';
 
 export default function AIPage() {
   const [selectedIssueId, setSelectedIssueId] = useState(allIssues[0]?.id ?? '');
@@ -33,15 +34,16 @@ export default function AIPage() {
 
   const [userApiKey, setUserApiKey] = useState(() => {
     if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem(API_KEY_STORAGE_KEY) ?? '';
+    const saved = window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() ?? '';
+    return saved || DEFAULT_NVIDIA_API_KEY;
   });
 
   const selectedIssue = allIssues.find((i) => i.id === selectedIssueId);
   const selectedProject = selectedIssue ? projects.find((p) => p.id === selectedIssue.projectId) : null;
 
   function updateApiKey(value: string) {
-    setUserApiKey(value);
     const trimmed = value.trim();
+    setUserApiKey(trimmed);
     if (trimmed) {
       window.localStorage.setItem(API_KEY_STORAGE_KEY, trimmed);
     } else {
@@ -130,7 +132,7 @@ export default function AIPage() {
           type="password"
           className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none"
         />
-        <p className="mt-1 text-[11px] text-slate-400">Use your own NVIDIA API key for this browser. It is stored locally and sent only with AI requests.</p>
+        <p className="mt-1 text-[11px] text-slate-400">Paste your NVIDIA API key here. It takes effect immediately, is saved in this browser, and is sent only with AI requests.</p>
       </div>
 
 
