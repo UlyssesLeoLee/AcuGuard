@@ -66,7 +66,7 @@ export async function PATCH(req: NextRequest) {
 
   if (!hasDatabase()) {
     if (Array.isArray(patch.orderedIds)) {
-      mockStore.reorderIssues(patch.orderedIds.filter((value): value is string => typeof value === 'string'));
+      mockStore.reorderIssues(patch.orderedIds.filter((value: unknown): value is string => typeof value === 'string'));
       return NextResponse.json({ ok: true });
     }
 
