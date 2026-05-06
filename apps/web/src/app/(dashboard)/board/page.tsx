@@ -70,6 +70,8 @@ export default function BoardPage() {
   const [localOverrides, setLocalOverrides] = useState<Record<string, IssueStatus>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchDraggingId = useRef<string | null>(null);
+  const touchStartPoint = useRef<{ x: number; y: number } | null>(null);
+  const [touchGhost, setTouchGhost] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     fetch('/api/issues')
@@ -159,21 +161,29 @@ export default function BoardPage() {
   function onTouchStart(id: string, e: React.TouchEvent) {
     const touch = e.touches[0];
     if (!touch) return;
+    touchStartPoint.current = { x: touch.clientX, y: touch.clientY };
     clearLongPressTimer();
     longPressTimer.current = setTimeout(() => {
       touchDraggingId.current = id;
       setDraggingId(id);
+      setTouchGhost({ x: touch.clientX, y: touch.clientY });
       const col = detectColumnFromPoint(touch.clientX, touch.clientY);
       if (col) setDragOverCol(col);
     }, 300);
   }
 
   function onTouchMove(e: React.TouchEvent) {
-    const activeId = touchDraggingId.current;
-    if (!activeId) return;
-    e.preventDefault();
     const touch = e.touches[0];
     if (!touch) return;
+    const activeId = touchDraggingId.current;
+    const start = touchStartPoint.current;
+    if (!activeId && start) {
+      const moved = Math.hypot(touch.clientX - start.x, touch.clientY - start.y);
+      if (moved > 8) clearLongPressTimer();
+    }
+    if (!activeId) return;
+    e.preventDefault();
+    setTouchGhost({ x: touch.clientX, y: touch.clientY });
     setDragOverCol(detectColumnFromPoint(touch.clientX, touch.clientY));
   }
 
@@ -197,6 +207,8 @@ export default function BoardPage() {
       }).catch(() => {});
     }
     touchDraggingId.current = null;
+    touchStartPoint.current = null;
+    setTouchGhost(null);
     setDraggingId(null);
     setDragOverCol(null);
   }
@@ -282,7 +294,7 @@ export default function BoardPage() {
                         onTouchEnd={onTouchEnd}
                         onTouchCancel={onTouchEnd}
                         onContextMenu={(e) => e.preventDefault()}
-                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all touch-none ${
+                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all touch-none select-none [webkit-touch-callout:none] ${
                           isDragging ? 'opacity-40 scale-95 rotate-1' : 'hover:-translate-y-0.5 hover:shadow-md'
                         }`}
                       >
@@ -290,7 +302,7 @@ export default function BoardPage() {
                           <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${PRIORITY_DOT[issue.priority]}`} />
                           <GripVertical size={13} className="text-slate-300 -mr-0.5" />
                         </div>
-                        <Link href={`/issues/${issue.id}`}>
+                        <Link href={`/issues/${issue.id}`} draggable={false} onClick={(e) => isDragging && e.preventDefault()}>
                           <p className="text-[13px] font-semibold text-slate-800 leading-snug line-clamp-2 hover:text-indigo-600 transition-colors">
                             {issue.title}
                           </p>
@@ -356,6 +368,16 @@ export default function BoardPage() {
               </div>
             );
           })}
+        </div>
+      )}
+      {touchGhost && draggingId && (
+        <div
+          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-indigo-200 bg-indigo-50/95 px-3 py-2 shadow-xl backdrop-blur-sm"
+          style={{ left: touchGhost.x, top: touchGhost.y }}
+        >
+          <p className="max-w-[220px] truncate text-xs font-semibold text-indigo-700">
+            {displayIssues.find((item) => item.id === draggingId)?.title ?? 'Moving issue'}
+          </p>
         </div>
       )}
     </div>
