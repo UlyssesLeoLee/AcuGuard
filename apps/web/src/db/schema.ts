@@ -1,6 +1,21 @@
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
-export const users = pgTable('users', { id: uuid('id').defaultRandom().primaryKey(), name: text('name').notNull(), email: text('email').notNull() });
+export const users = pgTable('users', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const authSessions = pgTable('auth_sessions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: uuid('user_id').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  revokedAt: timestamp('revoked_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const workspaces = pgTable('workspaces', { id: uuid('id').defaultRandom().primaryKey(), name: text('name').notNull() });
 export const projects = pgTable('projects', { id: uuid('id').defaultRandom().primaryKey(), name: text('name').notNull(), key: text('key').notNull(), workspaceId: uuid('workspace_id').notNull() });
 export const issues = pgTable('issues', { id: uuid('id').defaultRandom().primaryKey(), projectId: uuid('project_id').notNull(), title: text('title').notNull(), description: text('description').notNull(), status: text('status').notNull(), priority: text('priority').notNull(), creatorId: uuid('creator_id').notNull(), assigneeId: uuid('assignee_id'), createdAt: timestamp('created_at').defaultNow().notNull(), updatedAt: timestamp('updated_at').defaultNow().notNull() });
