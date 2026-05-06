@@ -1,6 +1,5 @@
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'qwen/qwen3-235b-a22b';
-const FALLBACK_TEST_API_KEY = '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';
 
 type AIAction = 'summary' | 'subtasks' | 'priority' | 'comment';
 
@@ -38,8 +37,22 @@ function normalizeSuggestions(text: string, action: AIAction): string[] {
   return [text.trim()];
 }
 
-export async function generateAISuggestions(action: AIAction, payload: Record<string, unknown>) {
-  const apiKey = process.env.NVIDIA_API_KEY || FALLBACK_TEST_API_KEY;
+function pickApiKey(userProvidedApiKey?: string) {
+  const trimmedUserKey = userProvidedApiKey?.trim();
+  if (trimmedUserKey) {
+    return trimmedUserKey;
+  }
+
+  const envKey = process.env.NVIDIA_API_KEY?.trim();
+  if (envKey) {
+    return envKey;
+  }
+
+  throw new Error('Missing NVIDIA API key. Add NVIDIA_API_KEY on server or provide your own API key in AI settings.');
+}
+
+export async function generateAISuggestions(action: AIAction, payload: Record<string, unknown>, userProvidedApiKey?: string) {
+  const apiKey = pickApiKey(userProvidedApiKey);
 
   const res = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
     method: 'POST',
