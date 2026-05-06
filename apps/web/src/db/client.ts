@@ -4,6 +4,10 @@ import * as schema from './schema';
 
 let dbInstance: ReturnType<typeof drizzle> | null = null;
 
+export function hasDatabase() {
+  return Boolean(process.env.DATABASE_URL);
+}
+
 export function getDb() {
   if (dbInstance) return dbInstance;
 

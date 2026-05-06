@@ -1,25 +1,39 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/db/client';
-import { issues } from '@/db/schema';
+import { getDb, hasDatabase } from '@/db/client';
+import { issues as dbIssues } from '@/db/schema';
+import { issues as mockIssues } from '@/lib/mock-data';
 import { IssuePriority, IssueStatus } from '@/lib/types';
 
 const isValidStatus = (value: string): value is IssueStatus => ['todo', 'in_progress', 'done'].includes(value);
 const isValidPriority = (value: string): value is IssuePriority => ['low', 'medium', 'high'].includes(value);
 
+const sortByUpdatedAtDesc = <T extends { updatedAt: string }>(items: T[]) =>
+  [...items].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
 export async function GET(req: NextRequest) {
   const projectId = req.nextUrl.searchParams.get('projectId');
   const status = req.nextUrl.searchParams.get('status');
 
+  if (!hasDatabase()) {
+    const filtered = mockIssues.filter((item) => {
+      if (projectId && item.projectId !== projectId) return false;
+      if (status && item.status !== status) return false;
+      return true;
+    });
+
+    return NextResponse.json(sortByUpdatedAtDesc(filtered));
+  }
+
   const db = getDb();
 
   const data = projectId && status
-    ? await db.select().from(issues).where(and(eq(issues.projectId, projectId), eq(issues.status, status))).orderBy(desc(issues.updatedAt))
+    ? await db.select().from(dbIssues).where(and(eq(dbIssues.projectId, projectId), eq(dbIssues.status, status))).orderBy(desc(dbIssues.updatedAt))
     : projectId
-      ? await db.select().from(issues).where(eq(issues.projectId, projectId)).orderBy(desc(issues.updatedAt))
+      ? await db.select().from(dbIssues).where(eq(dbIssues.projectId, projectId)).orderBy(desc(dbIssues.updatedAt))
       : status
-        ? await db.select().from(issues).where(eq(issues.status, status)).orderBy(desc(issues.updatedAt))
-        : await db.select().from(issues).orderBy(desc(issues.updatedAt));
+        ? await db.select().from(dbIssues).where(eq(dbIssues.status, status)).orderBy(desc(dbIssues.updatedAt))
+        : await db.select().from(dbIssues).orderBy(desc(dbIssues.updatedAt));
 
   return NextResponse.json(data);
 }
@@ -30,8 +44,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid status or priority' }, { status: 400 });
   }
 
+  if (!hasDatabase()) {
+    return NextResponse.json({ error: 'Database is not configured for write operations' }, { status: 503 });
+  }
+
   const db = getDb();
-  const [created] = await db.insert(issues).values({ ...body, assigneeId: body.assigneeId ?? null, updatedAt: new Date() }).returning();
+  const [created] = await db.insert(dbIssues).values({ ...body, assigneeId: body.assigneeId ?? null, updatedAt: new Date() }).returning();
   return NextResponse.json(created, { status: 201 });
 }
 
@@ -41,8 +59,12 @@ export async function PATCH(req: NextRequest) {
   if (patch.status && !isValidStatus(patch.status)) return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
   if (patch.priority && !isValidPriority(patch.priority)) return NextResponse.json({ error: 'Invalid priority' }, { status: 400 });
 
+  if (!hasDatabase()) {
+    return NextResponse.json({ error: 'Database is not configured for write operations' }, { status: 503 });
+  }
+
   const db = getDb();
-  const [updated] = await db.update(issues).set({ ...patch, updatedAt: new Date() }).where(eq(issues.id, id)).returning();
+  const [updated] = await db.update(dbIssues).set({ ...patch, updatedAt: new Date() }).where(eq(dbIssues.id, id)).returning();
   if (!updated) return NextResponse.json({ error: 'not found' }, { status: 404 });
   return NextResponse.json(updated);
 }
