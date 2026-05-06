@@ -2,14 +2,14 @@ import { desc, eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, hasDatabase } from '@/db/client';
 import { comments as dbComments } from '@/db/schema';
-import { comments as mockComments } from '@/lib/mock-data';
+import { mockStore } from '@/lib/mock-store';
 
 export async function GET(req: NextRequest) {
   const issueId = req.nextUrl.searchParams.get('issueId');
   if (!issueId) return NextResponse.json({ error: 'issueId is required' }, { status: 400 });
 
   if (!hasDatabase()) {
-    const data = mockComments
+    const data = mockStore.listComments()
       .filter((item) => item.issueId === issueId)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -25,7 +25,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   if (!hasDatabase()) {
-    return NextResponse.json({ error: 'Database is not configured for write operations' }, { status: 503 });
+    const created = mockStore.createComment(body);
+    return NextResponse.json(created, { status: 201 });
   }
 
   const db = getDb();

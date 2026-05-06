@@ -138,15 +138,22 @@ export default function BoardPage() {
       list.splice(from, 1);
       if (!targetId) {
         list.push(sourceId);
-        return list;
+      } else {
+        const baseIndex = list.indexOf(targetId);
+        if (baseIndex === -1) {
+          list.push(sourceId);
+        } else {
+          const insertAt = placeAfter ? baseIndex + 1 : baseIndex;
+          list.splice(insertAt, 0, sourceId);
+        }
       }
-      const baseIndex = list.indexOf(targetId);
-      if (baseIndex === -1) {
-        list.push(sourceId);
-        return list;
-      }
-      const insertAt = placeAfter ? baseIndex + 1 : baseIndex;
-      list.splice(insertAt, 0, sourceId);
+
+      fetch('/api/issues', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: sourceId, orderedIds: list }),
+      }).catch(() => {});
+
       return list;
     });
   }
