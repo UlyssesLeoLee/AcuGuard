@@ -1,8 +1,8 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Sparkles, ChevronDown, Check, X, Loader2, Zap, KeyRound } from 'lucide-react';
-import { issues as allIssues, projects } from '@/lib/mock-data';
+import { Project, Issue } from '@/lib/types';
 
 interface ActionDef {
   key: string;
@@ -24,7 +24,9 @@ const API_KEY_STORAGE_KEY = 'acuguard.user.nvidia_api_key';
 const DEFAULT_NVIDIA_API_KEY = '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';
 
 export default function AIPage() {
-  const [selectedIssueId, setSelectedIssueId] = useState(allIssues[0]?.id ?? '');
+  const [allIssues, setAllIssues] = useState<Issue[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedIssueId, setSelectedIssueId] = useState('');
   const [showPicker, setShowPicker] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [result, setResult] = useState<{ actionKey: string; text: string } | null>(null);
@@ -38,8 +40,17 @@ export default function AIPage() {
     return saved || DEFAULT_NVIDIA_API_KEY;
   });
 
-  const selectedIssue = allIssues.find((i) => i.id === selectedIssueId);
-  const selectedProject = selectedIssue ? projects.find((p) => p.id === selectedIssue.projectId) : null;
+  useEffect(() => {
+    fetch('/api/issues').then((r) => r.json()).then((data: Issue[]) => {
+      const list = Array.isArray(data) ? data : [];
+      setAllIssues(list);
+      setSelectedIssueId((prev) => prev || list[0]?.id || '');
+    }).catch(() => {});
+    fetch('/api/projects').then((r) => r.json()).then((data: Project[]) => setProjects(Array.isArray(data) ? data : [])).catch(() => {});
+  }, []);
+
+  const selectedIssue = useMemo(() => allIssues.find((i) => i.id === selectedIssueId), [allIssues, selectedIssueId]);
+  const selectedProject = useMemo(() => selectedIssue ? projects.find((p) => p.id === selectedIssue.projectId) : null, [projects, selectedIssue]);
 
   function updateApiKey(value: string) {
     const trimmed = value.trim();

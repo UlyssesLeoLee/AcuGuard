@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { Circle, CircleDot, CheckCircle2, User, Briefcase, TrendingUp } from 'lucide-react';
-import { issues as allIssues, users, projects } from '@/lib/mock-data';
+import { useEffect, useMemo, useState } from 'react';
+import { Circle, CircleDot, CheckCircle2, Briefcase, TrendingUp } from 'lucide-react';
+import { users } from '@/lib/mock-data';
+import { Issue, Project } from '@/lib/types';
 import { IssueStatus } from '@/lib/types';
 import { formatRelativeTime } from '@/lib/utils';
 
@@ -17,11 +19,6 @@ const STATUS_COLOR: Record<IssueStatus, string> = {
   todo: 'text-slate-400',
   in_progress: 'text-blue-500',
   done: 'text-emerald-500',
-};
-const STATUS_LABEL: Record<IssueStatus, string> = {
-  todo: 'To Do',
-  in_progress: 'In Progress',
-  done: 'Done',
 };
 const PRIORITY_DOT: Record<string, string> = {
   high: 'bg-rose-500',
@@ -45,9 +42,17 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
 }
 
 export default function MePage() {
+  const [allIssues, setAllIssues] = useState<Issue[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+
+  useEffect(() => {
+    fetch('/api/issues').then((r) => r.json()).then((data: Issue[]) => setAllIssues(Array.isArray(data) ? data : [])).catch(() => {});
+    fetch('/api/projects').then((r) => r.json()).then((data: Project[]) => setProjects(Array.isArray(data) ? data : [])).catch(() => {});
+  }, []);
+
   const me = users.find((u) => u.id === ME_ID)!;
-  const assigned = allIssues.filter((i) => i.assigneeId === ME_ID);
-  const created = allIssues.filter((i) => i.creatorId === ME_ID);
+  const assigned = useMemo(() => allIssues.filter((i) => i.assigneeId === ME_ID), [allIssues]);
+  const created = useMemo(() => allIssues.filter((i) => i.creatorId === ME_ID), [allIssues]);
   const activeIssues = assigned.filter((i) => i.status !== 'done');
   const doneIssues = assigned.filter((i) => i.status === 'done');
   const completionRate = assigned.length > 0 ? Math.round((doneIssues.length / assigned.length) * 100) : 0;
