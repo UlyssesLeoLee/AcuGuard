@@ -25,6 +25,13 @@ npm run dev
 4. Set `JWT_SECRET`.
 5. Deploy. Every push auto-deploys.
 
+## Deployment readiness status (current)
+- ✅ **Build/runtime**: Next.js app can be deployed to Vercel.
+- ⚠️ **Database integration**: `DATABASE_URL` is declared and Drizzle schema exists, but route handlers currently read/write in-memory mock data (`src/lib/mock-data.ts`) rather than Postgres.
+- ⚠️ **Migrations**: Drizzle config exists, but SQL migration files and an automated migration step are not included yet.
+
+To be truly "deploy-and-run with database", implement DB-backed route handlers and include migration/seed flow in deployment.
+
 ## API
 - `POST /api/auth/login`
 - `GET /api/projects`
