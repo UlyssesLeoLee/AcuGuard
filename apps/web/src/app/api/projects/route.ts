@@ -1,3 +1,8 @@
 import { NextResponse } from 'next/server';
-import { projects } from '@/lib/mock-data';
-export async function GET() { return NextResponse.json(projects); }
+import { db } from '@/db/client';
+import { projects } from '@/db/schema';
+
+export async function GET() {
+  const data = await db.select().from(projects);
+  return NextResponse.json(data);
+}
