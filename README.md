@@ -49,3 +49,16 @@ To be truly "deploy-and-run with database", implement DB-backed route handlers a
 
 ## Binary assets policy
 - Favicon has been switched from committed binary `.ico` to runtime-generated `app/icon.tsx` to keep repository text-only where practical.
+
+## Common Vercel issue: deployed but shows `404: NOT_FOUND`
+If Vercel shows **"Congratulations"** but the preview is `404: NOT_FOUND`, the project is usually building from the repo root instead of the Next.js app directory.
+
+Fix in Vercel project settings:
+1. Go to **Project → Settings → General**.
+2. Set **Root Directory** to `apps/web`.
+3. In **Environment Variables**, set at least:
+   - `JWT_SECRET`
+   - `DATABASE_URL` (from Neon integration, if enabled)
+4. Redeploy from **Deployments → ... → Redeploy**.
+
+Expected result: opening the production/preview URL should load the app home page (`/`) instead of 404.
