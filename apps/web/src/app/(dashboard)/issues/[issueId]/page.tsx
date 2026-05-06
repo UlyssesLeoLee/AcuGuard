@@ -35,6 +35,7 @@ export default function IssueDetailPage() {
 
   const [issue, setIssue] = useState<Issue | null>(null);
   const [currentStatus, setCurrentStatus] = useState<IssueStatus | null>(null);
+  const [currentPriority, setCurrentPriority] = useState<IssuePriority | null>(null);
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [localComments, setLocalComments] = useState<Comment[]>([]);
@@ -57,7 +58,8 @@ export default function IssueDetailPage() {
   }
 
   const status = currentStatus ?? issue.status;
-  const priorityConf = PRIORITY_CONFIG[issue.priority];
+  const priority = currentPriority ?? issue.priority;
+  const priorityConf = PRIORITY_CONFIG[priority];
   const assignee = issue.assigneeId ? users.find((u) => u.id === issue.assigneeId) : null;
   const creator = users.find((u) => u.id === issue.creatorId);
   const project = projects.find((p) => p.id === issue.projectId);
@@ -69,6 +71,15 @@ export default function IssueDetailPage() {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id: issueId, status: newStatus }),
+    }).catch(() => {});
+  }
+
+  async function updatePriority(newPriority: IssuePriority) {
+    setCurrentPriority(newPriority);
+    fetch('/api/issues', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: issueId, priority: newPriority }),
     }).catch(() => {});
   }
 
@@ -124,6 +135,24 @@ export default function IssueDetailPage() {
             <span className={`h-1.5 w-1.5 rounded-full ${priorityConf.dot}`} />
             <Flag size={10} />
             {priorityConf.label} Priority
+          </div>
+          <div className="mb-2.5 flex gap-2 overflow-x-auto no-scrollbar">
+            {(['high', 'medium', 'low'] as IssuePriority[]).map((p) => {
+              const conf = PRIORITY_CONFIG[p];
+              const isActive = priority === p;
+              return (
+                <button
+                  key={p}
+                  onClick={() => updatePriority(p)}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                    isActive ? `${conf.bg} ${conf.text} ring-2 ring-offset-1 ring-slate-300` : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${conf.dot}`} />
+                  {conf.label}
+                </button>
+              );
+            })}
           </div>
           <h1 className="text-xl font-bold text-slate-900 leading-snug">{issue.title}</h1>
         </div>
