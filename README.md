@@ -75,3 +75,9 @@ npm run taskgroup:jira-gap
 2. `npm run build`
 
 并在命令行输出当前与 Jira 的关键能力差距清单，便于快速评估下一阶段建设优先级。
+
+
+## Actix 后端（新增）
+- 目录：`apps/backend`
+- 启动：`cd apps/backend && cargo run`
+- 启动时自动执行 `apps/backend/sql/schema.sql`，完成 PostgreSQL DDL 初始化。
