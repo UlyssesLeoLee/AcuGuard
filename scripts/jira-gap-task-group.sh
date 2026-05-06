@@ -19,13 +19,19 @@ for task in "${TASKS[@]}"; do
  done
 
 cat <<'REPORT'
-Improvement backlog (relative to Jira):
-1) Persistent workflow engine: missing configurable statuses/transitions/validators.
-2) RBAC & permissions: only login exists; no project/issue-level authorization matrix.
-3) Database completeness: handlers still use mock data, not PostgreSQL.
-4) Auditability: no immutable activity log, change history, or field-level timeline.
-5) Notifications: no subscription model, mention parser, or async delivery pipeline.
-6) Search & filtering: no indexed full-text search, saved filters, or JQL-equivalent query layer.
-7) SLA/operations: no SLO metrics, alerting, rate limiting, idempotency keys, or retry policy.
-8) Integrations: no webhooks/automation rules/platform events.
+Execution roadmap (surpass Jira):
+- Plan file: docs/surpass-jira-execution-plan.md
+
+Current capability status:
+1) Database persistence .......... TODO (mock data still in use)
+2) Workflow engine ............... TODO
+3) RBAC permissions .............. TODO
+4) Immutable audit trail ......... TODO
+5) Notification subscriptions .... TODO
+6) Search + Query DSL ............ TODO
+7) SLO/Idempotency/Ops ........... TODO
+8) Integrations & automation ..... TODO
+
+Suggested next action:
+- Start Phase 1 from docs/surpass-jira-execution-plan.md and convert each item into tracked issues/milestones.
 REPORT
