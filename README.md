@@ -62,3 +62,16 @@ Fix in Vercel project settings:
 4. Redeploy from **Deployments → ... → Redeploy**.
 
 Expected result: opening the production/preview URL should load the app home page (`/`) instead of 404.
+
+## 一键任务组：Jira 差距基线检查
+在仓库根目录执行：
+
+```bash
+npm run taskgroup:jira-gap
+```
+
+该任务组会自动执行：
+1. `npm run lint`
+2. `npm run build`
+
+并在命令行输出当前与 Jira 的关键能力差距清单，便于快速评估下一阶段建设优先级。
