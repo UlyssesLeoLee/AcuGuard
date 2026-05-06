@@ -72,6 +72,9 @@ export default function BoardPage() {
   const touchDraggingId = useRef<string | null>(null);
   const touchStartPoint = useRef<{ x: number; y: number } | null>(null);
   const [touchGhost, setTouchGhost] = useState<{ x: number; y: number } | null>(null);
+  const boardScrollRef = useRef<HTMLDivElement | null>(null);
+  const autoScrollFrame = useRef<number | null>(null);
+  const autoScrollVelocity = useRef(0);
 
   useEffect(() => {
     fetch('/api/issues')
@@ -97,13 +100,71 @@ export default function BoardPage() {
     [displayIssues],
   );
 
+  function stopAutoScroll() {
+    if (autoScrollFrame.current !== null) {
+      cancelAnimationFrame(autoScrollFrame.current);
+      autoScrollFrame.current = null;
+    }
+    autoScrollVelocity.current = 0;
+  }
+
+  function startAutoScroll() {
+    if (autoScrollFrame.current !== null) return;
+    const tick = () => {
+      const container = boardScrollRef.current;
+      if (!container) {
+        stopAutoScroll();
+        return;
+      }
+      const velocity = autoScrollVelocity.current;
+      if (velocity === 0) {
+        autoScrollFrame.current = null;
+        return;
+      }
+      container.scrollLeft += velocity;
+      autoScrollFrame.current = requestAnimationFrame(tick);
+    };
+    autoScrollFrame.current = requestAnimationFrame(tick);
+  }
+
+  function updateAutoScroll(clientX: number) {
+    const container = boardScrollRef.current;
+    if (!container) return;
+    const edgeThreshold = 72;
+    const maxVelocity = 16;
+    const rect = container.getBoundingClientRect();
+    const leftDistance = clientX - rect.left;
+    const rightDistance = rect.right - clientX;
+    let velocity = 0;
+
+    if (leftDistance < edgeThreshold) {
+      velocity = -((edgeThreshold - leftDistance) / edgeThreshold) * maxVelocity;
+    } else if (rightDistance < edgeThreshold) {
+      velocity = ((edgeThreshold - rightDistance) / edgeThreshold) * maxVelocity;
+    }
+
+    if (velocity < 0 && container.scrollLeft <= 0) velocity = 0;
+    if (velocity > 0 && container.scrollLeft + container.clientWidth >= container.scrollWidth) velocity = 0;
+
+    autoScrollVelocity.current = velocity;
+    if (velocity === 0) {
+      stopAutoScroll();
+      return;
+    }
+    startAutoScroll();
+  }
+
+  useEffect(() => () => stopAutoScroll(), []);
+
   function onDragStart(id: string) {
     setDraggingId(id);
+    autoScrollVelocity.current = 0;
   }
 
   function onDragOver(e: React.DragEvent, colKey: IssueStatus) {
     e.preventDefault();
     setDragOverCol(colKey);
+    if (draggingId) updateAutoScroll(e.clientX);
   }
 
   function onDrop(colKey: IssueStatus) {
@@ -119,6 +180,7 @@ export default function BoardPage() {
   }
 
   function onDragEnd() {
+    stopAutoScroll();
     setDraggingId(null);
     setDragOverCol(null);
   }
@@ -190,6 +252,7 @@ export default function BoardPage() {
     }
     if (!activeId) return;
     e.preventDefault();
+    updateAutoScroll(touch.clientX);
     setTouchGhost({ x: touch.clientX, y: touch.clientY });
     setDragOverCol(detectColumnFromPoint(touch.clientX, touch.clientY));
   }
@@ -213,6 +276,7 @@ export default function BoardPage() {
         body: JSON.stringify({ id: activeId, status: targetCol }),
       }).catch(() => {});
     }
+    stopAutoScroll();
     touchDraggingId.current = null;
     touchStartPoint.current = null;
     setTouchGhost(null);
@@ -249,7 +313,12 @@ export default function BoardPage() {
 
       {view === 'kanban' ? (
         /* ── Kanban view ─────────────────────────────── */
-        <div className="flex gap-3 px-4 py-4 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+        <div
+          ref={boardScrollRef}
+          onDragOver={(e) => draggingId && updateAutoScroll(e.clientX)}
+          onDrop={stopAutoScroll}
+          className="flex gap-3 px-4 py-4 overflow-x-auto no-scrollbar snap-x snap-mandatory"
+        >
           {grouped.map((col) => {
             const ColIcon = col.Icon;
             const isDragTarget = dragOverCol === col.key;
