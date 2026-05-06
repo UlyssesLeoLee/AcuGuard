@@ -1,28 +1,17 @@
+import { ChatPromptTemplate } from 'langchain/prompts';
+import { ChatOpenAI } from '@langchain/openai';
+
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'qwen/qwen3-235b-a22b';
 
 type AIAction = 'summary' | 'subtasks' | 'priority' | 'comment';
 
-function buildPrompt(action: AIAction, payload: Record<string, unknown>) {
-  const title = String(payload.title ?? 'Untitled issue');
-  const description = String(payload.description ?? '');
-  const context = JSON.stringify(payload);
-
-  const instructions: Record<AIAction, string> = {
-    summary: 'Generate one concise issue summary focused on scope, risks, and delivery intent.',
-    subtasks: 'Generate 3-6 concrete implementation subtasks as a numbered list.',
-    priority: 'Recommend one priority level (low/medium/high/urgent) and one-sentence rationale.',
-    comment: 'Generate one professional progress comment suitable for issue updates.',
-  };
-
-  return [
-    'You are an engineering copilot. Return plain text only.',
-    instructions[action],
-    `Title: ${title}`,
-    `Description: ${description}`,
-    `Full context: ${context}`,
-  ].join('\n');
-}
+const ACTION_INSTRUCTIONS: Record<AIAction, string> = {
+  summary: 'Generate one concise issue summary focused on scope, risks, and delivery intent.',
+  subtasks: 'Generate 3-6 concrete implementation subtasks as a numbered list.',
+  priority: 'Recommend one priority level (low/medium/high/urgent) and one-sentence rationale.',
+  comment: 'Generate one professional progress comment suitable for issue updates.',
+};
 
 function normalizeSuggestions(text: string, action: AIAction): string[] {
   if (action === 'subtasks') {
@@ -39,48 +28,41 @@ function normalizeSuggestions(text: string, action: AIAction): string[] {
 
 function pickApiKey(userProvidedApiKey?: string) {
   const trimmedUserKey = userProvidedApiKey?.trim();
-  if (trimmedUserKey) {
-    return trimmedUserKey;
-  }
+  if (trimmedUserKey) return trimmedUserKey;
 
   const envKey = process.env.NVIDIA_API_KEY?.trim();
-  if (envKey) {
-    return envKey;
-  }
+  if (envKey) return envKey;
 
   throw new Error('Missing NVIDIA API key. Add NVIDIA_API_KEY on server or provide your own API key in AI settings.');
 }
 
-export async function generateAISuggestions(action: AIAction, payload: Record<string, unknown>, userProvidedApiKey?: string) {
-  const apiKey = pickApiKey(userProvidedApiKey);
+function buildModel(apiKey: string) {
+  return new ChatOpenAI({
+    apiKey,
+    model: NVIDIA_MODEL,
+    temperature: 0.2,
+    maxTokens: 500,
+    configuration: { baseURL: NVIDIA_BASE_URL },
+  });
+}
 
-  const res = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: NVIDIA_MODEL,
-      temperature: 0.2,
-      max_tokens: 500,
-      messages: [
-        { role: 'system', content: 'You produce safe and actionable software-delivery assistance.' },
-        { role: 'user', content: buildPrompt(action, payload) },
-      ],
-    }),
+async function runActionWithLangChain(action: AIAction, payload: Record<string, unknown>, userProvidedApiKey?: string) {
+  const apiKey = pickApiKey(userProvidedApiKey);
+  const model = buildModel(apiKey);
+
+  const prompt = ChatPromptTemplate.fromMessages([
+    ['system', 'You produce safe and actionable software-delivery assistance. Return plain text only.'],
+    ['human', `Task: {instruction}\nTitle: {title}\nDescription: {description}\nFull context: {context}`],
+  ]);
+
+  const response = await prompt.pipe(model).invoke({
+    instruction: ACTION_INSTRUCTIONS[action],
+    title: String(payload.title ?? 'Untitled issue'),
+    description: String(payload.description ?? ''),
+    context: JSON.stringify(payload),
   });
 
-  if (!res.ok) {
-    const errorBody = await res.text();
-    throw new Error(`NVIDIA API request failed (${res.status}): ${errorBody}`);
-  }
-
-  const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-
-  const content = data.choices?.[0]?.message?.content?.trim();
+  const content = response.text?.trim();
   if (!content) {
     throw new Error('NVIDIA API returned empty completion content');
   }
@@ -89,5 +71,37 @@ export async function generateAISuggestions(action: AIAction, payload: Record<st
     action,
     suggestions: normalizeSuggestions(content, action),
     requiresConfirmation: true,
+  };
+}
+
+const CHAT_COMMANDS: Record<string, AIAction> = {
+  '/summary': 'summary',
+  '/subtasks': 'subtasks',
+  '/priority': 'priority',
+  '/comment': 'comment',
+};
+
+export async function generateAISuggestions(action: AIAction, payload: Record<string, unknown>, userProvidedApiKey?: string) {
+  return runActionWithLangChain(action, payload, userProvidedApiKey);
+}
+
+export async function runAIChatCommand(input: string, payload: Record<string, unknown>, userProvidedApiKey?: string) {
+  const trimmed = input.trim();
+  const [command] = trimmed.split(/\s+/);
+  const action = CHAT_COMMANDS[command.toLowerCase()];
+
+  if (!action) {
+    const supported = Object.keys(CHAT_COMMANDS).join(', ');
+    return {
+      ok: false as const,
+      message: `Unsupported command. Try one of: ${supported}`,
+    };
+  }
+
+  const result = await runActionWithLangChain(action, payload, userProvidedApiKey);
+  return {
+    ok: true as const,
+    action,
+    suggestions: result.suggestions,
   };
 }
