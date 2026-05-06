@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getDb, hasDatabase } from '@/db/client';
 import { projects } from '@/db/schema';
-import { projects as mockProjects } from '@/lib/mock-data';
+import { mockStore } from '@/lib/mock-store';
 
 export async function GET() {
   if (!hasDatabase()) {
-    return NextResponse.json(mockProjects);
+    return NextResponse.json(mockStore.listProjects());
   }
 
   const db = getDb();

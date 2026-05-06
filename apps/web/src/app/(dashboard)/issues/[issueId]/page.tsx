@@ -1,9 +1,10 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, Circle, CircleDot, CheckCircle2, User, Calendar, MessageSquare, Send, Flag } from 'lucide-react';
-import { issues as allIssues, comments as allComments, users, projects } from '@/lib/mock-data';
+import { users, projects } from '@/lib/mock-data';
+import { Comment, Issue } from '@/lib/types';
 import { IssueStatus, IssuePriority } from '@/lib/types';
 import { getInitials, formatDate, formatRelativeTime } from '@/lib/utils';
 
@@ -32,11 +33,16 @@ export default function IssueDetailPage() {
   const { issueId } = useParams<{ issueId: string }>();
   const router = useRouter();
 
-  const issue = allIssues.find((i) => i.id === issueId);
+  const [issue, setIssue] = useState<Issue | null>(null);
   const [currentStatus, setCurrentStatus] = useState<IssueStatus | null>(null);
   const [commentBody, setCommentBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [localComments, setLocalComments] = useState(allComments.filter((c) => c.issueId === issueId));
+  const [localComments, setLocalComments] = useState<Comment[]>([]);
+
+  useEffect(() => {
+    fetch(`/api/issues?id=${issueId}`).then((r) => r.json()).then((items: Issue[]) => setIssue(items[0] ?? null)).catch(() => {});
+    fetch(`/api/comments?issueId=${issueId}`).then((r) => r.json()).then((items: Comment[]) => setLocalComments(items)).catch(() => {});
+  }, [issueId]);
 
   if (!issue) {
     return (
@@ -51,7 +57,6 @@ export default function IssueDetailPage() {
   }
 
   const status = currentStatus ?? issue.status;
-  const statusConf = STATUS_FLOW.find((s) => s.key === status)!;
   const priorityConf = PRIORITY_CONFIG[issue.priority];
   const assignee = issue.assigneeId ? users.find((u) => u.id === issue.assigneeId) : null;
   const creator = users.find((u) => u.id === issue.creatorId);
