@@ -138,7 +138,7 @@ export default function AIPage() {
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Chat Commands</p>
-        <p className="mt-1 text-[11px] text-slate-400">Use /summary, /subtasks, /priority, /comment to trigger AI actions via chat.</p>
+        <p className="mt-1 text-[11px] text-slate-400">Use /summary, /subtasks, /priority, /comment for suggestions, or /set-status todo|in_progress|done to update issue status directly.</p>
         <form onSubmit={runChatCommand} className="mt-3 flex gap-2">
           <input
             value={chatCommand}
