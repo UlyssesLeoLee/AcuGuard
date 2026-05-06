@@ -4,7 +4,7 @@ import { generateAISuggestions } from '@/lib/ai';
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as Record<string, unknown>;
-    const result = await generateAISuggestions('summary', body);
+    const result = await generateAISuggestions('summary', body, req.headers.get('x-user-api-key') ?? undefined);
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown AI error';
