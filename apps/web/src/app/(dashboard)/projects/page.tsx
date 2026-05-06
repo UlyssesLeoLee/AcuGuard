@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ChevronRight, Search } from 'lucide-react';
-import { projects, issues, users } from '@/lib/mock-data';
+import { users } from '@/lib/mock-data';
+import { Issue, Project } from '@/lib/types';
 import { getProjectColor, getInitials } from '@/lib/utils';
 
-function ProjectCard({ project }: { project: typeof projects[0] }) {
+function ProjectCard({ project, issues }: { project: Project; issues: Issue[] }) {
   const projectIssues = issues.filter((i) => i.projectId === project.id);
   const done = projectIssues.filter((i) => i.status === 'done').length;
   const inProgress = projectIssues.filter((i) => i.status === 'in_progress').length;
@@ -97,10 +98,17 @@ function ProjectCard({ project }: { project: typeof projects[0] }) {
 
 export default function ProjectsPage() {
   const [search, setSearch] = useState('');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [issues, setIssues] = useState<Issue[]>([]);
+
+  useEffect(() => {
+    fetch('/api/projects').then((r) => r.json()).then((data: Project[]) => setProjects(Array.isArray(data) ? data : [])).catch(() => {});
+    fetch('/api/issues').then((r) => r.json()).then((data: Issue[]) => setIssues(Array.isArray(data) ? data : [])).catch(() => {});
+  }, []);
 
   const filtered = useMemo(
     () => projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.key.toLowerCase().includes(search.toLowerCase())),
-    [search],
+    [projects, search],
   );
 
   const totalIssues = issues.length;
@@ -136,7 +144,7 @@ export default function ProjectsPage() {
             <p className="text-sm text-slate-400 mt-1">Try a different search term</p>
           </div>
         ) : (
-          filtered.map((project) => <ProjectCard key={project.id} project={project} />)
+          filtered.map((project) => <ProjectCard key={project.id} project={project} issues={issues} />)
         )}
       </div>
     </div>
