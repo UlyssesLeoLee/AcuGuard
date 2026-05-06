@@ -55,6 +55,12 @@ const PRIORITY_DOT: Record<Issue['priority'], string> = {
   low: 'bg-slate-300',
 };
 
+const PRIORITY_HEX: Record<Issue['priority'], string> = {
+  high: '#f43f5e',
+  medium: '#fbbf24',
+  low: '#cbd5e1',
+};
+
 const STATUS_ICON_COLOR: Record<IssueStatus, string> = {
   todo: 'text-slate-400',
   in_progress: 'text-blue-500',
@@ -166,9 +172,23 @@ export default function BoardPage() {
 
   useEffect(() => () => stopAutoScroll(), []);
 
-  function onDragStart(id: string) {
+  function onDragStart(id: string, e: React.DragEvent) {
     setDraggingId(id);
     autoScrollVelocity.current = 0;
+
+    const issue = issues.find((i) => i.id === id);
+    if (issue) {
+      const color = PRIORITY_HEX[issue.priority];
+      const ghost = document.createElement('div');
+      ghost.style.cssText =
+        'position:fixed;top:-1000px;left:0;border-radius:12px;background:white;border:1px solid #e2e8f0;border-left:3px solid #6366f1;padding:12px 14px;width:210px;box-shadow:0 20px 40px -10px rgba(0,0,0,0.2);transform:rotate(2deg);';
+      ghost.innerHTML = `<div style="display:flex;align-items:flex-start;gap:8px"><div style="margin-top:3px;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></div><p style="margin:0;font-size:12px;font-weight:600;color:#1e293b;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${issue.title}</p></div>`;
+      document.body.appendChild(ghost);
+      e.dataTransfer.setDragImage(ghost, 105, 24);
+      setTimeout(() => {
+        if (document.body.contains(ghost)) document.body.removeChild(ghost);
+      }, 0);
+    }
   }
 
   function onDragOver(e: React.DragEvent, colKey: IssueStatus) {
@@ -302,6 +322,8 @@ export default function BoardPage() {
     setHoverTarget(null);
   }
 
+  const touchGhostIssue = touchGhost && draggingId ? displayIssues.find((item) => item.id === draggingId) : null;
+
   return (
     <div className="-mx-4 -mt-4">
       {/* Toolbar */}
@@ -345,12 +367,16 @@ export default function BoardPage() {
               <div
                 key={col.key}
                 data-col-key={col.key}
-                className={`shrink-0 w-[78vw] max-w-[300px] snap-center rounded-2xl border-2 transition-colors ${
-                  isDragTarget ? 'border-indigo-400 bg-indigo-50/60' : 'border-slate-200 bg-white/60'
+                className={`shrink-0 w-[78vw] max-w-[300px] snap-center rounded-2xl border-2 transition-all duration-200 ${
+                  isDragTarget
+                    ? 'border-indigo-400 bg-indigo-50/60 shadow-[0_0_0_4px_rgba(99,102,241,0.12)]'
+                    : 'border-slate-200 bg-white/60'
                 }`}
                 onDragOver={(e) => onDragOver(e, col.key)}
                 onDrop={() => onDrop(col.key)}
-                onDragLeave={() => setDragOverCol(null)}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null);
+                }}
               >
                 {/* Column header */}
                 <div className={`flex items-center justify-between rounded-t-2xl px-3.5 py-3 ${col.headerBg}`}>
@@ -368,12 +394,23 @@ export default function BoardPage() {
                   {col.items.map((issue) => {
                     const assignee = issue.assigneeId ? users.find((u) => u.id === issue.assigneeId) : null;
                     const isDragging = draggingId === issue.id;
+
+                    if (isDragging) {
+                      return (
+                        <div
+                          key={issue.id}
+                          data-issue-id={issue.id}
+                          className="rounded-xl border-2 border-dashed border-indigo-300/70 bg-indigo-50/40 min-h-[76px] transition-all duration-200"
+                        />
+                      );
+                    }
+
                     return (
                       <div
                         key={issue.id}
                         data-issue-id={issue.id}
                         draggable
-                        onDragStart={() => onDragStart(issue.id)}
+                        onDragStart={(e) => onDragStart(issue.id, e)}
                         onDragEnd={onDragEnd}
                         onDragOver={(e) => e.preventDefault()}
                         onDrop={(e) => {
@@ -393,15 +430,13 @@ export default function BoardPage() {
                           const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
                           setHoverTarget({ targetId: issue.id, placeAfter: e.clientY > rect.top + rect.height / 2 });
                         }}
-                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all touch-none select-none [-webkit-touch-callout:none] ${
-                          isDragging ? 'opacity-40 scale-95 rotate-1' : 'hover:-translate-y-0.5 hover:shadow-md'
-                        }`}
+                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all duration-200 touch-none select-none [-webkit-touch-callout:none] hover:-translate-y-0.5 hover:shadow-md`}
                       >
                         <div className="flex items-start justify-between mb-2">
                           <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${PRIORITY_DOT[issue.priority]}`} />
                           <GripVertical size={13} className="text-slate-300 -mr-0.5" />
                         </div>
-                        <Link href={`/issues/${issue.id}`} draggable={false} onClick={(e) => isDragging && e.preventDefault()}>
+                        <Link href={`/issues/${issue.id}`} draggable={false}>
                           <p className="text-[13px] font-semibold text-slate-800 leading-snug line-clamp-2 hover:text-indigo-600 transition-colors">
                             {issue.title}
                           </p>
@@ -469,14 +504,24 @@ export default function BoardPage() {
           })}
         </div>
       )}
-      {touchGhost && draggingId && (
+
+      {/* Touch drag ghost */}
+      {touchGhost && touchGhostIssue && (
         <div
-          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-indigo-200 bg-indigo-50/95 px-3 py-2 shadow-xl backdrop-blur-sm"
-          style={{ left: touchGhost.x, top: touchGhost.y }}
+          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white px-3 py-2.5 shadow-2xl rotate-2 opacity-95"
+          style={{
+            left: touchGhost.x,
+            top: touchGhost.y,
+            border: '1px solid #e2e8f0',
+            borderLeft: '3px solid #6366f1',
+          }}
         >
-          <p className="max-w-[220px] truncate text-xs font-semibold text-indigo-700">
-            {displayIssues.find((item) => item.id === draggingId)?.title ?? 'Moving issue'}
-          </p>
+          <div className="flex items-start gap-2">
+            <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${PRIORITY_DOT[touchGhostIssue.priority]}`} />
+            <p className="max-w-[200px] text-xs font-semibold text-slate-800 leading-snug line-clamp-2">
+              {touchGhostIssue.title}
+            </p>
+          </div>
         </div>
       )}
     </div>
