@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Circle, CircleDot, CheckCircle2, GripVertical, List, LayoutGrid } from 'lucide-react';
 import { Issue, IssueStatus } from '@/lib/types';
@@ -67,6 +67,8 @@ export default function BoardPage() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<IssueStatus | null>(null);
   const [localOverrides, setLocalOverrides] = useState<Record<string, IssueStatus>>({});
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchDraggingId = useRef<string | null>(null);
 
   useEffect(() => {
     fetch('/api/issues')
@@ -111,6 +113,60 @@ export default function BoardPage() {
     setDragOverCol(null);
   }
 
+  function detectColumnFromPoint(x: number, y: number): IssueStatus | null {
+    if (typeof document === 'undefined') return null;
+    const el = document.elementFromPoint(x, y)?.closest('[data-col-key]');
+    const colKey = el?.getAttribute('data-col-key');
+    return colKey === 'todo' || colKey === 'in_progress' || colKey === 'done' ? colKey : null;
+  }
+
+  function clearLongPressTimer() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }
+
+  function onTouchStart(id: string, e: React.TouchEvent) {
+    const touch = e.touches[0];
+    if (!touch) return;
+    clearLongPressTimer();
+    longPressTimer.current = setTimeout(() => {
+      touchDraggingId.current = id;
+      setDraggingId(id);
+      const col = detectColumnFromPoint(touch.clientX, touch.clientY);
+      if (col) setDragOverCol(col);
+    }, 300);
+  }
+
+  function onTouchMove(e: React.TouchEvent) {
+    const activeId = touchDraggingId.current;
+    if (!activeId) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    if (!touch) return;
+    setDragOverCol(detectColumnFromPoint(touch.clientX, touch.clientY));
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    clearLongPressTimer();
+    const activeId = touchDraggingId.current;
+    if (!activeId) return;
+    const touch = e.changedTouches[0];
+    const targetCol = touch ? detectColumnFromPoint(touch.clientX, touch.clientY) : dragOverCol;
+    if (targetCol) {
+      setLocalOverrides((prev) => ({ ...prev, [activeId]: targetCol }));
+      fetch('/api/issues', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: activeId, status: targetCol }),
+      }).catch(() => {});
+    }
+    touchDraggingId.current = null;
+    setDraggingId(null);
+    setDragOverCol(null);
+  }
+
   return (
     <div className="-mx-4 -mt-4">
       {/* Toolbar */}
@@ -148,6 +204,7 @@ export default function BoardPage() {
             return (
               <div
                 key={col.key}
+                data-col-key={col.key}
                 className={`shrink-0 w-[78vw] max-w-[300px] snap-center rounded-2xl border-2 transition-colors ${
                   isDragTarget ? 'border-indigo-400 bg-indigo-50/60' : 'border-slate-200 bg-white/60'
                 }`}
@@ -177,6 +234,10 @@ export default function BoardPage() {
                         draggable
                         onDragStart={() => onDragStart(issue.id)}
                         onDragEnd={onDragEnd}
+                        onTouchStart={(e) => onTouchStart(issue.id, e)}
+                        onTouchMove={onTouchMove}
+                        onTouchEnd={onTouchEnd}
+                        onTouchCancel={onTouchEnd}
                         className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all ${
                           isDragging ? 'opacity-40 scale-95 rotate-1' : 'hover:-translate-y-0.5 hover:shadow-md'
                         }`}
