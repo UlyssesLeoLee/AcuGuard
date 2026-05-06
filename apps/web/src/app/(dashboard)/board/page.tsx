@@ -1,124 +1,257 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { BoardPluginGroup, Plugin } from '@/components/plugins/PluginGroups';
-import { Issue } from '@/lib/types';
+import Link from 'next/link';
+import { Circle, CircleDot, CheckCircle2, GripVertical, List, LayoutGrid } from 'lucide-react';
+import { Issue, IssueStatus } from '@/lib/types';
+import { users } from '@/lib/mock-data';
+import { getInitials, formatRelativeTime } from '@/lib/utils';
 
-const columns: Array<{ key: Issue['status']; title: string; tone: string }> = [
-  { key: 'todo', title: 'To do', tone: 'from-cyan-400/30 to-blue-500/20' },
-  { key: 'in_progress', title: 'In progress', tone: 'from-fuchsia-400/30 to-violet-500/20' },
-  { key: 'done', title: 'Done', tone: 'from-emerald-400/30 to-teal-500/20' },
+type ViewMode = 'kanban' | 'list';
+
+interface ColumnDef {
+  key: IssueStatus;
+  title: string;
+  Icon: React.FC<{ size?: number; className?: string; strokeWidth?: number }>;
+  headerBg: string;
+  headerText: string;
+  accentBorder: string;
+  emptyText: string;
+}
+
+const COLUMNS: ColumnDef[] = [
+  {
+    key: 'todo',
+    title: 'To Do',
+    Icon: Circle,
+    headerBg: 'bg-slate-50',
+    headerText: 'text-slate-600',
+    accentBorder: 'border-l-slate-300',
+    emptyText: 'No pending issues',
+  },
+  {
+    key: 'in_progress',
+    title: 'In Progress',
+    Icon: CircleDot,
+    headerBg: 'bg-blue-50',
+    headerText: 'text-blue-700',
+    accentBorder: 'border-l-blue-500',
+    emptyText: 'Nothing in progress',
+  },
+  {
+    key: 'done',
+    title: 'Done',
+    Icon: CheckCircle2,
+    headerBg: 'bg-emerald-50',
+    headerText: 'text-emerald-700',
+    accentBorder: 'border-l-emerald-500',
+    emptyText: 'No completed issues',
+  },
 ];
 
-const priorityWeight: Record<Issue['priority'], number> = {
-  low: 1,
-  medium: 2,
-  high: 3,
+const PRIORITY_DOT: Record<Issue['priority'], string> = {
+  high: 'bg-rose-500',
+  medium: 'bg-amber-400',
+  low: 'bg-slate-300',
 };
 
-const timelineSlots = 16;
+const STATUS_ICON_COLOR: Record<IssueStatus, string> = {
+  todo: 'text-slate-400',
+  in_progress: 'text-blue-500',
+  done: 'text-emerald-500',
+};
 
 export default function BoardPage() {
-  const [data, setData] = useState<Issue[]>([]);
-  const [view, setView] = useState<'kanban' | 'gantt'>('kanban');
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [view, setView] = useState<ViewMode>('kanban');
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<IssueStatus | null>(null);
+  const [localOverrides, setLocalOverrides] = useState<Record<string, IssueStatus>>({});
 
   useEffect(() => {
     fetch('/api/issues')
-      .then((res) => res.json())
-      .then((json) => setData(json));
+      .then((r) => r.json())
+      .then((data: Issue[]) => setIssues(data))
+      .catch(() => {});
   }, []);
 
-  const grouped = useMemo(() => {
-    return columns.map((column) => ({
-      ...column,
-      items: data.filter((issue) => issue.status === column.key),
-    }));
-  }, [data]);
+  const displayIssues = useMemo(
+    () => issues.map((i) => ({ ...i, status: localOverrides[i.id] ?? i.status })),
+    [issues, localOverrides],
+  );
 
-  const ganttRows = useMemo(() => {
-    return [...data]
-      .sort((a, b) => priorityWeight[b.priority] - priorityWeight[a.priority])
-      .map((issue, index) => {
-        const span = Math.max(3, 8 - priorityWeight[issue.priority]);
-        const safeStart = (index * 2 + priorityWeight[issue.priority]) % (timelineSlots - span);
+  const grouped = useMemo(
+    () => COLUMNS.map((col) => ({ ...col, items: displayIssues.filter((i) => i.status === col.key) })),
+    [displayIssues],
+  );
 
-        return {
-          ...issue,
-          start: safeStart,
-          span,
-        };
-      });
-  }, [data]);
+  function onDragStart(id: string) {
+    setDraggingId(id);
+  }
+
+  function onDragOver(e: React.DragEvent, colKey: IssueStatus) {
+    e.preventDefault();
+    setDragOverCol(colKey);
+  }
+
+  function onDrop(colKey: IssueStatus) {
+    if (!draggingId) return;
+    setLocalOverrides((prev) => ({ ...prev, [draggingId]: colKey }));
+    setDraggingId(null);
+    setDragOverCol(null);
+    fetch('/api/issues', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: draggingId, status: colKey }),
+    }).catch(() => {});
+  }
+
+  function onDragEnd() {
+    setDraggingId(null);
+    setDragOverCol(null);
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-white/30 bg-white/20 p-2 shadow-xl shadow-slate-900/5 backdrop-blur-xl">
-        <div className="inline-flex rounded-xl bg-slate-950/80 p-1 text-xs font-semibold text-white/90">
+    <div className="-mx-4 -mt-4">
+      {/* Toolbar */}
+      <div className="sticky top-[57px] z-20 bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between">
+        <h1 className="text-[17px] font-bold text-slate-900">Board</h1>
+        <div className="flex rounded-xl bg-slate-100 p-1 gap-0.5">
           <button
             onClick={() => setView('kanban')}
-            className={`rounded-lg px-3 py-1.5 transition ${
-              view === 'kanban' ? 'bg-white text-slate-900 shadow-md' : 'hover:bg-white/20'
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              view === 'kanban' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
             }`}
           >
+            <LayoutGrid size={13} />
             Kanban
           </button>
           <button
-            onClick={() => setView('gantt')}
-            className={`rounded-lg px-3 py-1.5 transition ${
-              view === 'gantt' ? 'bg-white text-slate-900 shadow-md' : 'hover:bg-white/20'
+            onClick={() => setView('list')}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              view === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
             }`}
           >
-            Gantt
+            <List size={13} />
+            List
           </button>
         </div>
       </div>
 
       {view === 'kanban' ? (
-        <BoardPluginGroup>
-          {grouped.map((column) => (
-            <Plugin key={column.key} title={`${column.title} (${column.items.length})`}>
-              <div className="space-y-2">
-                {column.items.map((issue) => (
-                  <article
-                    key={issue.id}
-                    className="rounded-xl border border-white/40 bg-gradient-to-br from-white/80 to-white/20 p-3 shadow-md shadow-slate-900/10 backdrop-blur-xl transition hover:-translate-y-0.5 hover:shadow-lg"
-                  >
-                    <div className={`mb-2 h-1.5 rounded-full bg-gradient-to-r ${column.tone}`} />
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{issue.priority}</p>
-                    <h3 className="mt-1 text-sm font-semibold text-slate-800">{issue.title}</h3>
-                    <p className="mt-1 line-clamp-2 text-xs text-slate-600">{issue.description}</p>
-                  </article>
-                ))}
-              </div>
-            </Plugin>
-          ))}
-        </BoardPluginGroup>
-      ) : (
-        <section className="overflow-hidden rounded-2xl border border-white/30 bg-white/20 p-4 shadow-xl shadow-slate-900/5 backdrop-blur-2xl">
-          <header className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-800">Delivery timeline</h2>
-            <p className="text-xs text-slate-500">即时渲染 · 优先级驱动</p>
-          </header>
+        /* ── Kanban view ─────────────────────────────── */
+        <div className="flex gap-3 px-4 py-4 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+          {grouped.map((col) => {
+            const ColIcon = col.Icon;
+            const isDragTarget = dragOverCol === col.key;
 
-          <div className="grid grid-cols-[180px_1fr] gap-y-2 text-xs text-slate-600">
-            {ganttRows.map((row) => (
-              <div key={row.id} className="contents">
-                <div className="truncate pr-2 font-medium text-slate-700">
-                  {row.title}
+            return (
+              <div
+                key={col.key}
+                className={`shrink-0 w-[78vw] max-w-[300px] snap-center rounded-2xl border-2 transition-colors ${
+                  isDragTarget ? 'border-indigo-400 bg-indigo-50/60' : 'border-slate-200 bg-white/60'
+                }`}
+                onDragOver={(e) => onDragOver(e, col.key)}
+                onDrop={() => onDrop(col.key)}
+                onDragLeave={() => setDragOverCol(null)}
+              >
+                {/* Column header */}
+                <div className={`flex items-center justify-between rounded-t-2xl px-3.5 py-3 ${col.headerBg}`}>
+                  <div className="flex items-center gap-1.5">
+                    <ColIcon size={14} className={col.headerText} strokeWidth={2} />
+                    <span className={`text-xs font-bold ${col.headerText}`}>{col.title}</span>
+                  </div>
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-white/70 px-1.5 text-[10px] font-bold text-slate-600">
+                    {col.items.length}
+                  </span>
                 </div>
-                <div className="relative h-8 rounded-lg bg-white/40">
-                  <div
-                    className="absolute top-1 h-6 rounded-md bg-gradient-to-r from-cyan-500/70 via-violet-500/70 to-fuchsia-500/70 shadow-sm shadow-cyan-900/30"
-                    style={{
-                      left: `${(row.start / timelineSlots) * 100}%`,
-                      width: `${(row.span / timelineSlots) * 100}%`,
-                    }}
-                  />
+
+                {/* Cards */}
+                <div className="space-y-2 p-2.5 min-h-[120px]">
+                  {col.items.map((issue) => {
+                    const assignee = issue.assigneeId ? users.find((u) => u.id === issue.assigneeId) : null;
+                    const isDragging = draggingId === issue.id;
+                    return (
+                      <div
+                        key={issue.id}
+                        draggable
+                        onDragStart={() => onDragStart(issue.id)}
+                        onDragEnd={onDragEnd}
+                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all ${
+                          isDragging ? 'opacity-40 scale-95 rotate-1' : 'hover:-translate-y-0.5 hover:shadow-md'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${PRIORITY_DOT[issue.priority]}`} />
+                          <GripVertical size={13} className="text-slate-300 -mr-0.5" />
+                        </div>
+                        <Link href={`/issues/${issue.id}`}>
+                          <p className="text-[13px] font-semibold text-slate-800 leading-snug line-clamp-2 hover:text-indigo-600 transition-colors">
+                            {issue.title}
+                          </p>
+                        </Link>
+                        {assignee && (
+                          <div className="mt-2.5 flex items-center gap-1.5">
+                            <div className="h-5 w-5 rounded-full bg-indigo-100 flex items-center justify-center text-[8px] font-bold text-indigo-700">
+                              {getInitials(assignee.name)}
+                            </div>
+                            <span className="text-[10px] text-slate-500 truncate">{assignee.name.split(' ')[0]}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {col.items.length === 0 && (
+                    <div className="flex items-center justify-center py-8">
+                      <p className="text-xs text-slate-400">{col.emptyText}</p>
+                    </div>
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
+            );
+          })}
+        </div>
+      ) : (
+        /* ── List view ───────────────────────────────── */
+        <div className="px-4 py-3 space-y-5">
+          {grouped.map((col) => {
+            const ColIcon = col.Icon;
+            if (col.items.length === 0) return null;
+            return (
+              <div key={col.key}>
+                <div className={`flex items-center gap-2 mb-2.5`}>
+                  <ColIcon size={14} className={STATUS_ICON_COLOR[col.key]} strokeWidth={2} />
+                  <span className="text-xs font-bold text-slate-600">{col.title}</span>
+                  <span className="text-xs text-slate-400">({col.items.length})</span>
+                </div>
+                <div className="space-y-2">
+                  {col.items.map((issue) => {
+                    const assignee = issue.assigneeId ? users.find((u) => u.id === issue.assigneeId) : null;
+                    return (
+                      <Link
+                        key={issue.id}
+                        href={`/issues/${issue.id}`}
+                        className="flex items-center gap-3 rounded-2xl bg-white p-3.5 border border-slate-100 shadow-sm active:scale-[0.99] transition-all"
+                      >
+                        <div className={`h-2 w-2 rounded-full shrink-0 ${PRIORITY_DOT[issue.priority]}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[14px] font-medium text-slate-900 truncate">{issue.title}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">{formatRelativeTime(issue.updatedAt)}</p>
+                        </div>
+                        {assignee && (
+                          <div className="h-6 w-6 shrink-0 rounded-full bg-indigo-100 flex items-center justify-center text-[8px] font-bold text-indigo-700">
+                            {getInitials(assignee.name)}
+                          </div>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
