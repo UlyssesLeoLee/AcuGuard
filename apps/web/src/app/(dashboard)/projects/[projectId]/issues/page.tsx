@@ -1,0 +1,4 @@
+'use client';
+import { useState } from 'react'; import Link from 'next/link'; import { issues } from '@/lib/mock-data';
+export default function IssueList({params}:{params:{projectId:string}}){const [title,setTitle]=useState(''); const rows=issues.filter(i=>i.projectId===params.projectId); async function add(){await fetch('/api/issues',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({projectId:params.projectId,title,description:'',status:'todo',priority:'medium',creatorId:'u1'})}); location.reload();}
+return <div className='space-y-3'><div className='flex gap-2'><input className='border p-2 flex-1' value={title} onChange={e=>setTitle(e.target.value)} placeholder='New issue title'/><button onClick={add} className='bg-black text-white px-3 rounded'>Add</button></div>{rows.map(i=><Link href={`/issues/${i.id}`} className='block border p-3 rounded' key={i.id}>{i.title} · {i.status} · {i.priority}</Link>)}</div>;}
