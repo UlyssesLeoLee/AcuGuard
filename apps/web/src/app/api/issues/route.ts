@@ -1,6 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/db/client';
+import { getDb } from '@/db/client';
 import { issues } from '@/db/schema';
 import { IssuePriority, IssueStatus } from '@/lib/types';
 
@@ -10,6 +10,8 @@ const isValidPriority = (value: string): value is IssuePriority => ['low', 'medi
 export async function GET(req: NextRequest) {
   const projectId = req.nextUrl.searchParams.get('projectId');
   const status = req.nextUrl.searchParams.get('status');
+
+  const db = getDb();
 
   const data = projectId && status
     ? await db.select().from(issues).where(and(eq(issues.projectId, projectId), eq(issues.status, status))).orderBy(desc(issues.updatedAt))
@@ -28,6 +30,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid status or priority' }, { status: 400 });
   }
 
+  const db = getDb();
   const [created] = await db.insert(issues).values({ ...body, assigneeId: body.assigneeId ?? null, updatedAt: new Date() }).returning();
   return NextResponse.json(created, { status: 201 });
 }
@@ -38,6 +41,7 @@ export async function PATCH(req: NextRequest) {
   if (patch.status && !isValidStatus(patch.status)) return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
   if (patch.priority && !isValidPriority(patch.priority)) return NextResponse.json({ error: 'Invalid priority' }, { status: 400 });
 
+  const db = getDb();
   const [updated] = await db.update(issues).set({ ...patch, updatedAt: new Date() }).where(eq(issues.id, id)).returning();
   if (!updated) return NextResponse.json({ error: 'not found' }, { status: 404 });
   return NextResponse.json(updated);
