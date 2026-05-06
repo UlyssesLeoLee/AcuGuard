@@ -5,7 +5,8 @@
     "dev": "npm --prefix apps/web run dev",
     "build": "npm --prefix apps/web run build",
     "start": "npm --prefix apps/web run start",
-    "lint": "npm --prefix apps/web run lint"
+    "lint": "npm --prefix apps/web run lint",
+    "taskgroup:jira-gap": "bash scripts/jira-gap-task-group.sh"
   },
   "dependencies": {
     "next": "16.2.4"
