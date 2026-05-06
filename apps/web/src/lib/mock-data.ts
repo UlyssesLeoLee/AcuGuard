@@ -1,11 +1,180 @@
 import { AiLog, Comment, Issue, Project, User, Workspace } from './types';
 
-export const users: User[] = [{ id: 'u1', name: 'Demo User', email: 'demo@acuguard.ai' }];
-export const workspaces: Workspace[] = [{ id: 'w1', name: 'AcuGuard' }];
-export const projects: Project[] = [{ id: 'p1', name: 'MVP Launch', key: 'MVP', workspaceId: 'w1' }];
-export const issues: Issue[] = [
-  { id: 'i1', projectId: 'p1', title: 'Set up Vercel deployment', description: 'Connect GitHub and configure Neon DATABASE_URL.', status: 'todo', priority: 'high', creatorId: 'u1', assigneeId: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  { id: 'i2', projectId: 'p1', title: 'Build Kanban board', description: '3 columns: todo/in progress/done', status: 'in_progress', priority: 'medium', creatorId: 'u1', assigneeId: 'u1', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+const now = new Date();
+const hoursAgo = (hours: number) => new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
+
+export const users: User[] = [
+  { id: 'u1', name: 'Demo User', email: 'demo@acuguard.ai' },
+  { id: 'u2', name: 'Avery Chen', email: 'avery@acuguard.ai' },
+  { id: 'u3', name: 'Maya Torres', email: 'maya@acuguard.ai' },
+  { id: 'u4', name: 'Noah Patel', email: 'noah@acuguard.ai' },
 ];
-export const comments: Comment[] = [];
-export const aiLogs: AiLog[] = [];
+
+export const workspaces: Workspace[] = [
+  { id: 'w1', name: 'AcuGuard' },
+  { id: 'w2', name: 'Beta Labs' },
+];
+
+export const projects: Project[] = [
+  { id: 'p1', name: 'MVP Launch', key: 'MVP', workspaceId: 'w1' },
+  { id: 'p2', name: 'Customer Portal', key: 'CP', workspaceId: 'w1' },
+  { id: 'p3', name: 'Security Hardening', key: 'SEC', workspaceId: 'w1' },
+  { id: 'p4', name: 'Plugin Marketplace', key: 'PLG', workspaceId: 'w2' },
+];
+
+export const issues: Issue[] = [
+  {
+    id: 'i1',
+    projectId: 'p1',
+    title: 'Set up Vercel deployment',
+    description: 'Connect GitHub, configure environment variables, and validate preview URLs.',
+    status: 'done',
+    priority: 'high',
+    creatorId: 'u1',
+    assigneeId: 'u2',
+    createdAt: hoursAgo(240),
+    updatedAt: hoursAgo(30),
+  },
+  {
+    id: 'i2',
+    projectId: 'p1',
+    title: 'Build Kanban board',
+    description: 'Implement todo / in progress / done with drag-and-drop transitions.',
+    status: 'in_progress',
+    priority: 'high',
+    creatorId: 'u1',
+    assigneeId: 'u3',
+    createdAt: hoursAgo(180),
+    updatedAt: hoursAgo(8),
+  },
+  {
+    id: 'i3',
+    projectId: 'p1',
+    title: 'Finalize demo script for investors',
+    description: 'Add walkthrough checkpoints for project list, board, AI actions, and issue detail.',
+    status: 'todo',
+    priority: 'medium',
+    creatorId: 'u2',
+    assigneeId: 'u1',
+    createdAt: hoursAgo(72),
+    updatedAt: hoursAgo(6),
+  },
+  {
+    id: 'i4',
+    projectId: 'p2',
+    title: 'Implement role-based access badges',
+    description: 'Display owner/editor/viewer badges in issue comments and assignment widgets.',
+    status: 'todo',
+    priority: 'medium',
+    creatorId: 'u3',
+    assigneeId: 'u4',
+    createdAt: hoursAgo(144),
+    updatedAt: hoursAgo(15),
+  },
+  {
+    id: 'i5',
+    projectId: 'p2',
+    title: 'Optimize list view for 1k+ issues',
+    description: 'Virtualize rows and keep filter/sort interactions under 100ms.',
+    status: 'in_progress',
+    priority: 'high',
+    creatorId: 'u4',
+    assigneeId: 'u2',
+    createdAt: hoursAgo(120),
+    updatedAt: hoursAgo(5),
+  },
+  {
+    id: 'i6',
+    projectId: 'p2',
+    title: 'Add empty-state guidance copy',
+    description: 'Explain how to create first issue and trigger AI helper safely.',
+    status: 'done',
+    priority: 'low',
+    creatorId: 'u1',
+    assigneeId: 'u1',
+    createdAt: hoursAgo(96),
+    updatedAt: hoursAgo(40),
+  },
+  {
+    id: 'i7',
+    projectId: 'p3',
+    title: 'Enable audit logging for issue mutations',
+    description: 'Capture before/after fields for create/update transitions.',
+    status: 'in_progress',
+    priority: 'high',
+    creatorId: 'u2',
+    assigneeId: 'u4',
+    createdAt: hoursAgo(90),
+    updatedAt: hoursAgo(3),
+  },
+  {
+    id: 'i8',
+    projectId: 'p3',
+    title: 'Rotate API keys every 30 days',
+    description: 'Create runbook and automated reminders for key rotation policy.',
+    status: 'todo',
+    priority: 'medium',
+    creatorId: 'u4',
+    assigneeId: 'u3',
+    createdAt: hoursAgo(60),
+    updatedAt: hoursAgo(12),
+  },
+  {
+    id: 'i9',
+    projectId: 'p4',
+    title: 'Ship plugin onboarding templates',
+    description: 'Provide scaffolds for chat, board, and timeline plugin families.',
+    status: 'done',
+    priority: 'medium',
+    creatorId: 'u3',
+    assigneeId: 'u2',
+    createdAt: hoursAgo(84),
+    updatedAt: hoursAgo(18),
+  },
+  {
+    id: 'i10',
+    projectId: 'p4',
+    title: 'Design plugin quality scorecard',
+    description: 'Score plugins by reliability, UX quality, and telemetry coverage.',
+    status: 'todo',
+    priority: 'low',
+    creatorId: 'u1',
+    assigneeId: 'u4',
+    createdAt: hoursAgo(48),
+    updatedAt: hoursAgo(2),
+  },
+];
+
+export const comments: Comment[] = [
+  { id: 'c1', issueId: 'i2', authorId: 'u3', body: '基础看板已经完成，下一步接入状态统计卡片。', createdAt: hoursAgo(7) },
+  { id: 'c2', issueId: 'i2', authorId: 'u1', body: '请确保拖拽失败时有清晰的错误提示。', createdAt: hoursAgo(6) },
+  { id: 'c3', issueId: 'i5', authorId: 'u2', body: '已验证 1200 条数据滚动流畅，仍需优化筛选性能。', createdAt: hoursAgo(4) },
+  { id: 'c4', issueId: 'i7', authorId: 'u4', body: '审计日志字段建议增加 requestId 便于链路排查。', createdAt: hoursAgo(2) },
+];
+
+export const aiLogs: AiLog[] = [
+  {
+    id: 'a1',
+    issueId: 'i3',
+    action: 'summary',
+    input: 'Finalize demo script for investors',
+    output: 'AI summarized key storyline for the investor demo into 4 checkpoints.',
+    createdAt: hoursAgo(5),
+  },
+  {
+    id: 'a2',
+    issueId: 'i5',
+    action: 'priority',
+    input: 'Optimize list view for 1k+ issues',
+    output: 'AI recommended high priority due to user-facing latency risk.',
+    createdAt: hoursAgo(4),
+  },
+  {
+    id: 'a3',
+    issueId: 'i7',
+    action: 'subtasks',
+    input: 'Enable audit logging for issue mutations',
+    output: 'AI proposed schema, middleware, and dashboard validation subtasks.',
+    createdAt: hoursAgo(2),
+  },
+];
