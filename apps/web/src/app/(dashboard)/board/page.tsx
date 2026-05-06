@@ -67,6 +67,7 @@ export default function BoardPage() {
   const [view, setView] = useState<ViewMode>('kanban');
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<IssueStatus | null>(null);
+  const [hoverTarget, setHoverTarget] = useState<{ targetId: string; placeAfter: boolean } | null>(null);
   const [localOverrides, setLocalOverrides] = useState<Record<string, IssueStatus>>({});
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchDraggingId = useRef<string | null>(null);
@@ -95,10 +96,19 @@ export default function BoardPage() {
     [issues, localOverrides, orderedIds],
   );
 
-  const grouped = useMemo(
-    () => COLUMNS.map((col) => ({ ...col, items: displayIssues.filter((i) => i.status === col.key) })),
-    [displayIssues],
-  );
+  const grouped = useMemo(() => {
+    const visibleIssues = draggingId ? displayIssues.filter((i) => i.id !== draggingId) : displayIssues;
+    const issuesWithPreviewOrder = [...visibleIssues];
+    if (draggingId && hoverTarget) {
+      const draggingIssue = displayIssues.find((item) => item.id === draggingId);
+      const targetIndex = issuesWithPreviewOrder.findIndex((item) => item.id === hoverTarget.targetId);
+      if (draggingIssue && targetIndex !== -1) {
+        const insertAt = hoverTarget.placeAfter ? targetIndex + 1 : targetIndex;
+        issuesWithPreviewOrder.splice(insertAt, 0, draggingIssue);
+      }
+    }
+    return COLUMNS.map((col) => ({ ...col, items: issuesWithPreviewOrder.filter((i) => i.status === col.key) }));
+  }, [displayIssues, draggingId, hoverTarget]);
 
   function stopAutoScroll() {
     if (autoScrollFrame.current !== null) {
@@ -183,6 +193,7 @@ export default function BoardPage() {
     stopAutoScroll();
     setDraggingId(null);
     setDragOverCol(null);
+    setHoverTarget(null);
   }
 
   function detectColumnFromPoint(x: number, y: number): IssueStatus | null {
@@ -228,6 +239,7 @@ export default function BoardPage() {
   }
 
   function onTouchStart(id: string, e: React.TouchEvent) {
+    e.preventDefault();
     const touch = e.touches[0];
     if (!touch) return;
     touchStartPoint.current = { x: touch.clientX, y: touch.clientY };
@@ -255,6 +267,11 @@ export default function BoardPage() {
     updateAutoScroll(touch.clientX);
     setTouchGhost({ x: touch.clientX, y: touch.clientY });
     setDragOverCol(detectColumnFromPoint(touch.clientX, touch.clientY));
+    const hoverEl = document.elementFromPoint(touch.clientX, touch.clientY)?.closest<HTMLElement>('[data-issue-id]');
+    if (hoverEl && hoverEl.dataset.issueId && hoverEl.dataset.issueId !== activeId) {
+      const rect = hoverEl.getBoundingClientRect();
+      setHoverTarget({ targetId: hoverEl.dataset.issueId, placeAfter: touch.clientY > rect.top + rect.height / 2 });
+    }
   }
 
   function onTouchEnd(e: React.TouchEvent) {
@@ -282,6 +299,7 @@ export default function BoardPage() {
     setTouchGhost(null);
     setDraggingId(null);
     setDragOverCol(null);
+    setHoverTarget(null);
   }
 
   return (
@@ -370,7 +388,12 @@ export default function BoardPage() {
                         onTouchEnd={onTouchEnd}
                         onTouchCancel={onTouchEnd}
                         onContextMenu={(e) => e.preventDefault()}
-                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all touch-none select-none [webkit-touch-callout:none] ${
+                        onDragEnter={(e) => {
+                          if (!draggingId || draggingId === issue.id) return;
+                          const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                          setHoverTarget({ targetId: issue.id, placeAfter: e.clientY > rect.top + rect.height / 2 });
+                        }}
+                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all touch-none select-none [-webkit-touch-callout:none] ${
                           isDragging ? 'opacity-40 scale-95 rotate-1' : 'hover:-translate-y-0.5 hover:shadow-md'
                         }`}
                       >
