@@ -85,7 +85,8 @@ export default function BoardPage() {
 
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const autoScrollFrame = useRef<number | null>(null);
-  const autoScrollVelocity = useRef(0);
+  const autoScrollVelocityX = useRef(0);
+  const autoScrollVelocityY = useRef(0);
 
   // FLIP animation state
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -241,7 +242,8 @@ export default function BoardPage() {
       cancelAnimationFrame(autoScrollFrame.current);
       autoScrollFrame.current = null;
     }
-    autoScrollVelocity.current = 0;
+    autoScrollVelocityX.current = 0;
+    autoScrollVelocityY.current = 0;
   }
 
   function startAutoScroll() {
@@ -249,15 +251,17 @@ export default function BoardPage() {
     const tick = () => {
       const container = boardScrollRef.current;
       if (!container) { stopAutoScroll(); return; }
-      const velocity = autoScrollVelocity.current;
-      if (velocity === 0) { autoScrollFrame.current = null; return; }
-      container.scrollLeft += velocity;
+      const velocityX = autoScrollVelocityX.current;
+      const velocityY = autoScrollVelocityY.current;
+      if (velocityX === 0 && velocityY === 0) { autoScrollFrame.current = null; return; }
+      container.scrollLeft += velocityX;
+      if (velocityY !== 0) window.scrollBy({ top: velocityY });
       autoScrollFrame.current = requestAnimationFrame(tick);
     };
     autoScrollFrame.current = requestAnimationFrame(tick);
   }
 
-  function updateAutoScroll(clientX: number) {
+  function updateAutoScroll(clientX: number, clientY?: number) {
     const container = boardScrollRef.current;
     if (!container) return;
     const edgeThreshold = 72;
@@ -265,13 +269,29 @@ export default function BoardPage() {
     const rect = container.getBoundingClientRect();
     const leftDistance = clientX - rect.left;
     const rightDistance = rect.right - clientX;
-    let velocity = 0;
-    if (leftDistance < edgeThreshold) velocity = -((edgeThreshold - leftDistance) / edgeThreshold) * maxVelocity;
-    else if (rightDistance < edgeThreshold) velocity = ((edgeThreshold - rightDistance) / edgeThreshold) * maxVelocity;
-    if (velocity < 0 && container.scrollLeft <= 0) velocity = 0;
-    if (velocity > 0 && container.scrollLeft + container.clientWidth >= container.scrollWidth) velocity = 0;
-    autoScrollVelocity.current = velocity;
-    if (velocity === 0) { stopAutoScroll(); return; }
+    let velocityX = 0;
+    if (leftDistance < edgeThreshold) velocityX = -((edgeThreshold - leftDistance) / edgeThreshold) * maxVelocity;
+    else if (rightDistance < edgeThreshold) velocityX = ((edgeThreshold - rightDistance) / edgeThreshold) * maxVelocity;
+    if (velocityX < 0 && container.scrollLeft <= 0) velocityX = 0;
+    if (velocityX > 0 && container.scrollLeft + container.clientWidth >= container.scrollWidth) velocityX = 0;
+
+    let velocityY = 0;
+    if (typeof clientY === "number") {
+      const viewportHeight = window.innerHeight;
+      const topDistance = clientY;
+      const bottomDistance = viewportHeight - clientY;
+      if (topDistance < edgeThreshold) velocityY = -((edgeThreshold - topDistance) / edgeThreshold) * maxVelocity;
+      else if (bottomDistance < edgeThreshold) velocityY = ((edgeThreshold - bottomDistance) / edgeThreshold) * maxVelocity;
+
+      const maxScrollY = Math.max(0, document.documentElement.scrollHeight - viewportHeight);
+      const currentScrollY = window.scrollY;
+      if (velocityY < 0 && currentScrollY <= 0) velocityY = 0;
+      if (velocityY > 0 && currentScrollY >= maxScrollY) velocityY = 0;
+    }
+
+    autoScrollVelocityX.current = velocityX;
+    autoScrollVelocityY.current = velocityY;
+    if (velocityX === 0 && velocityY === 0) { stopAutoScroll(); return; }
     startAutoScroll();
   }
 
@@ -288,7 +308,8 @@ export default function BoardPage() {
     clearAllPhysicsTransforms();
     draggingIdRef.current = id;
     setDraggingId(id);
-    autoScrollVelocity.current = 0;
+    autoScrollVelocityX.current = 0;
+    autoScrollVelocityY.current = 0;
     startPhysics();
 
     const issue = issues.find((i) => i.id === id);
@@ -308,7 +329,7 @@ export default function BoardPage() {
     e.preventDefault();
     cursorRef.current = { x: e.clientX, y: e.clientY };
     setDragOverCol(colKey);
-    if (draggingId) updateAutoScroll(e.clientX);
+    if (draggingId) updateAutoScroll(e.clientX, e.clientY);
   }
 
   function onDrop(colKey: IssueStatus) {
@@ -384,7 +405,7 @@ export default function BoardPage() {
     },
     onDragMove: (_id, touch) => {
       cursorRef.current = touch;
-      updateAutoScroll(touch.x);
+      updateAutoScroll(touch.x, touch.y);
       setDragOverCol(detectColumnFromPoint(touch.x, touch.y));
     },
     onDragReorderPreview: (id, touch) => {
@@ -497,7 +518,7 @@ export default function BoardPage() {
         /* ── Kanban view ─────────────────────────────── */
         <div
           ref={boardScrollRef}
-          onDragOver={(e) => { if (draggingId) { cursorRef.current = { x: e.clientX, y: e.clientY }; updateAutoScroll(e.clientX); } }}
+          onDragOver={(e) => { if (draggingId) { cursorRef.current = { x: e.clientX, y: e.clientY }; updateAutoScroll(e.clientX, e.clientY); } }}
           onDrop={stopAutoScroll}
           className="flex gap-3 px-4 py-4 overflow-x-auto no-scrollbar snap-x snap-mandatory"
         >
