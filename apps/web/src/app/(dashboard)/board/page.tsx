@@ -87,6 +87,7 @@ export default function BoardPage() {
   const touchStartPoint = useRef<{ x: number; y: number } | null>(null);
   const [touchGhost, setTouchGhost] = useState<{ x: number; y: number } | null>(null);
   const touchGhostRef = useRef<HTMLDivElement | null>(null);
+  const touchGhostOffset = useRef<{ x: number; y: number }>({ x: 16, y: 16 });
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const autoScrollFrame = useRef<number | null>(null);
   const autoScrollVelocity = useRef(0);
@@ -384,7 +385,11 @@ export default function BoardPage() {
       draggingIdRef.current = id;
       touchDraggingId.current = id;
       setDraggingId(id);
-      setTouchGhost({ x: touch.clientX, y: touch.clientY });
+      const rect = cardEl?.getBoundingClientRect();
+      touchGhostOffset.current = rect
+        ? { x: touch.clientX - rect.left, y: touch.clientY - rect.top }
+        : { x: 16, y: 16 };
+      setTouchGhost({ x: touch.clientX - touchGhostOffset.current.x, y: touch.clientY - touchGhostOffset.current.y });
       cursorRef.current = { x: touch.clientX, y: touch.clientY };
       startPhysics();
       const col = detectColumnFromPoint(touch.clientX, touch.clientY);
@@ -407,8 +412,8 @@ export default function BoardPage() {
     cursorRef.current = { x: touch.clientX, y: touch.clientY };
     updateAutoScroll(touch.clientX);
     if (touchGhostRef.current) {
-      touchGhostRef.current.style.left = `${touch.clientX}px`;
-      touchGhostRef.current.style.top = `${touch.clientY}px`;
+      touchGhostRef.current.style.left = `${touch.clientX - touchGhostOffset.current.x}px`;
+      touchGhostRef.current.style.top = `${touch.clientY - touchGhostOffset.current.y}px`;
     }
     setDragOverCol(detectColumnFromPoint(touch.clientX, touch.clientY));
 
@@ -678,7 +683,7 @@ export default function BoardPage() {
             left: touchGhost.x,
             top: touchGhost.y,
             width: 230,
-            transform: 'translateX(-50%) translateY(-80%) rotate(3deg)',
+            transform: 'rotate(3deg)',
             border: '1px solid #e2e8f0',
             borderLeft: '3px solid #6366f1',
           }}
