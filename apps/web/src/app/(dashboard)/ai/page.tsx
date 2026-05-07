@@ -1,189 +1,515 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Sparkles, ChevronDown, Check, X, Loader2, Zap, KeyRound } from 'lucide-react';
-import { Project, Issue } from '@/lib/types';
+import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { Sparkles, Send, Square, ChevronDown, Check, Loader2 } from 'lucide-react';
+import { Issue, IssuePriority, Project } from '@/lib/types';
 
-interface ActionDef {
-  key: string;
-  label: string;
-  description: string;
-  emoji: string;
-  gradient: string;
-  accentBorder: string;
+type ActionType = 'summary' | 'subtasks' | 'priority' | 'comment';
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  action?: ActionType;
+  applied?: boolean;
+  error?: boolean;
 }
 
-const AI_ACTIONS: ActionDef[] = [
-  { key: 'summary', label: 'Summarize', description: 'Generate a delivery-risk–aware summary', emoji: '📋', gradient: 'from-indigo-50 to-violet-50', accentBorder: 'border-indigo-200' },
-  { key: 'subtasks', label: 'Break into Subtasks', description: 'Auto-propose actionable subtasks', emoji: '🔀', gradient: 'from-violet-50 to-fuchsia-50', accentBorder: 'border-violet-200' },
-  { key: 'priority', label: 'Suggest Priority', description: 'Analyze impact and recommend priority', emoji: '🎯', gradient: 'from-amber-50 to-orange-50', accentBorder: 'border-amber-200' },
-  { key: 'comment', label: 'Draft Comment', description: 'Generate a professional status update', emoji: '💬', gradient: 'from-emerald-50 to-teal-50', accentBorder: 'border-emerald-200' },
+const QUICK_ACTIONS: { label: string; action: ActionType; emoji: string }[] = [
+  { label: 'Summary', action: 'summary', emoji: '📋' },
+  { label: 'Subtasks', action: 'subtasks', emoji: '🔀' },
+  { label: 'Priority', action: 'priority', emoji: '🎯' },
+  { label: 'Comment', action: 'comment', emoji: '💬' },
 ];
+
+const PRIORITY_COLORS: Record<IssuePriority, string> = {
+  low: 'bg-emerald-100 text-emerald-700',
+  medium: 'bg-amber-100 text-amber-700',
+  high: 'bg-red-100 text-red-700',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  todo: 'Todo',
+  in_progress: 'In Progress',
+  done: 'Done',
+};
 
 const API_KEY_STORAGE_KEY = 'acuguard.user.nvidia_api_key';
 const DEFAULT_NVIDIA_API_KEY = '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';
+
+function parsePriority(text: string): IssuePriority | null {
+  const lower = text.toLowerCase();
+  if (/\bhigh\b/.test(lower)) return 'high';
+  if (/\bmedium\b/.test(lower)) return 'medium';
+  if (/\blow\b/.test(lower)) return 'low';
+  return null;
+}
+
+function parseSubtasks(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.replace(/^\s*\d+[.)]\s*/, '').trim())
+    .filter(Boolean);
+}
+
+function genId() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 
 export default function AIPage() {
   const [allIssues, setAllIssues] = useState<Issue[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedIssueId, setSelectedIssueId] = useState('');
   const [showPicker, setShowPicker] = useState(false);
-  const [loading, setLoading] = useState<string | null>(null);
-  const [result, setResult] = useState<{ actionKey: string; text: string } | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [streaming, setStreaming] = useState(false);
+  const [streamText, setStreamText] = useState('');
+  const [input, setInput] = useState('');
+  const [applyingId, setApplyingId] = useState<string | null>(null);
 
-  const [chatCommand, setChatCommand] = useState('/summary');
-  const [chatResult, setChatResult] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const streamTextRef = useRef('');
 
-  const [userApiKey, setUserApiKey] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    const saved = window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() ?? '';
-    return saved || DEFAULT_NVIDIA_API_KEY;
-  });
-
-  useEffect(() => {
-    fetch('/api/issues').then((r) => r.json()).then((data: Issue[]) => {
-      const list = Array.isArray(data) ? data : [];
-      setAllIssues(list);
-      setSelectedIssueId((prev) => prev || list[0]?.id || '');
-    }).catch(() => {});
-    fetch('/api/projects').then((r) => r.json()).then((data: Project[]) => setProjects(Array.isArray(data) ? data : [])).catch(() => {});
+  const userApiKey = useMemo(() => {
+    if (typeof window === 'undefined') return DEFAULT_NVIDIA_API_KEY;
+    return window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() || DEFAULT_NVIDIA_API_KEY;
   }, []);
 
-  const selectedIssue = useMemo(() => allIssues.find((i) => i.id === selectedIssueId), [allIssues, selectedIssueId]);
-  const selectedProject = useMemo(() => selectedIssue ? projects.find((p) => p.id === selectedIssue.projectId) : null, [projects, selectedIssue]);
+  const selectedIssue = useMemo(
+    () => allIssues.find((i) => i.id === selectedIssueId),
+    [allIssues, selectedIssueId],
+  );
+  const selectedProject = useMemo(
+    () => (selectedIssue ? projects.find((p) => p.id === selectedIssue.projectId) : null),
+    [projects, selectedIssue],
+  );
 
-  function updateApiKey(value: string) {
-    const trimmed = value.trim();
-    setUserApiKey(trimmed);
-    if (trimmed) {
-      window.localStorage.setItem(API_KEY_STORAGE_KEY, trimmed);
-    } else {
-      window.localStorage.removeItem(API_KEY_STORAGE_KEY);
-    }
-  }
+  useEffect(() => {
+    fetch('/api/issues')
+      .then((r) => r.json())
+      .then((data: Issue[]) => {
+        const list = Array.isArray(data) ? data : [];
+        setAllIssues(list);
+        setSelectedIssueId((prev) => prev || list[0]?.id || '');
+      })
+      .catch(() => {});
+    fetch('/api/projects')
+      .then((r) => r.json())
+      .then((data: Project[]) => setProjects(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
 
-  async function runAction(actionKey: string) {
-    if (!selectedIssue) return;
-    setLoading(actionKey);
-    setResult(null);
+  // Clear chat when switching issues
+  useEffect(() => {
+    abortRef.current?.abort();
+    setMessages([]);
+    setStreamText('');
+    streamTextRef.current = '';
+    setStreaming(false);
+  }, [selectedIssueId]);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, streamText]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [input]);
+
+  async function sendMessage(content: string, action?: ActionType) {
+    if (!selectedIssue || streaming) return;
+
+    const userMsg: ChatMessage = { id: genId(), role: 'user', content };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput('');
+    setStreaming(true);
+    setStreamText('');
+    streamTextRef.current = '';
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const res = await fetch(`/api/ai/${actionKey}`, {
+      const res = await fetch('/api/ai/stream', {
         method: 'POST',
+        signal: controller.signal,
         headers: {
           'content-type': 'application/json',
-          ...(userApiKey.trim() ? { 'x-user-api-key': userApiKey.trim() } : {}),
-        },
-        body: JSON.stringify({ title: selectedIssue.title, description: selectedIssue.description }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(typeof data.error === 'string' ? data.error : 'AI request failed.');
-      }
-
-      const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [data.suggestions ?? 'No suggestions returned.'];
-      setResult({ actionKey, text: suggestions.join('\n\n') });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch AI suggestion. Please try again.';
-      setResult({ actionKey, text: message });
-    } finally {
-      setLoading(null);
-    }
-  }
-
-
-  async function runChatCommand(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedIssue || !chatCommand.trim()) return;
-    setLoading('chat');
-    setChatResult(null);
-
-    try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(userApiKey.trim() ? { 'x-user-api-key': userApiKey.trim() } : {}),
+          ...(userApiKey ? { 'x-user-api-key': userApiKey } : {}),
         },
         body: JSON.stringify({
-          command: chatCommand.trim(),
-          payload: { title: selectedIssue.title, description: selectedIssue.description },
+          action,
+          message: action ? undefined : content,
+          title: selectedIssue.title,
+          description: selectedIssue.description,
+          status: selectedIssue.status,
+          priority: selectedIssue.priority,
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(typeof data.error === 'string' ? data.error : 'AI command failed.');
+      if (!res.ok || !res.body) throw new Error('Stream request failed');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const lines = decoder.decode(value, { stream: true }).split('\n');
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6).trim();
+          if (raw === '[DONE]') break outer;
+          try {
+            const parsed = JSON.parse(raw) as { text?: string; error?: string };
+            if (parsed.error) throw new Error(parsed.error);
+            if (parsed.text) {
+              streamTextRef.current += parsed.text;
+              setStreamText(streamTextRef.current);
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof SyntaxError) continue;
+            throw parseErr;
+          }
+        }
       }
 
-      const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
-      setChatResult(suggestions.join('\n\n'));
-    } catch (error) {
-      setChatResult(error instanceof Error ? error.message : 'Failed to run command.');
+      const finalContent = streamTextRef.current;
+      const assistantMsg: ChatMessage = {
+        id: genId(),
+        role: 'assistant',
+        content: finalContent,
+        action,
+        error: !finalContent,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: genId(),
+          role: 'assistant',
+          content: err instanceof Error ? err.message : 'Something went wrong.',
+          error: true,
+        },
+      ]);
     } finally {
-      setLoading(null);
+      setStreaming(false);
+      setStreamText('');
+      streamTextRef.current = '';
+      abortRef.current = null;
     }
   }
 
-  const resultAction = result ? AI_ACTIONS.find((a) => a.key === result.actionKey) : null;
+  function cancelStream() {
+    abortRef.current?.abort();
+  }
+
+  async function applyMessage(msg: ChatMessage) {
+    if (!selectedIssue || msg.applied || applyingId) return;
+    setApplyingId(msg.id);
+    try {
+      if (msg.action === 'priority') {
+        const priority = parsePriority(msg.content);
+        if (!priority) return;
+        await fetch('/api/issues', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: selectedIssue.id, priority }),
+        });
+        setAllIssues((prev) =>
+          prev.map((i) => (i.id === selectedIssue.id ? { ...i, priority } : i)),
+        );
+      } else if (msg.action === 'comment') {
+        await fetch('/api/comments', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ issueId: selectedIssue.id, body: msg.content, authorId: 'ai' }),
+        });
+      }
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, applied: true } : m)));
+    } catch {
+      // silent — user can retry
+    } finally {
+      setApplyingId(null);
+    }
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const text = input.trim();
+      if (text) sendMessage(text);
+    }
+  }
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-sm"><Sparkles size={19} className="text-white" /></div>
-        <div><h1 className="text-xl font-bold text-slate-900">AI Copilot</h1><p className="text-xs text-slate-400">Human-in-the-loop · confirms before writing</p></div>
+    <div className="flex flex-col" style={{ height: 'calc(100svh - 57px)' }}>
+      {/* Header */}
+      <div className="shrink-0 border-b border-slate-100 bg-white px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-sm">
+            <Sparkles size={17} className="text-white" />
+          </div>
+
+          {/* Issue picker */}
+          <div className="relative flex-1 min-w-0">
+            <button
+              onClick={() => setShowPicker((s) => !s)}
+              className="flex w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left transition-colors hover:border-indigo-300 focus:outline-none"
+            >
+              {selectedIssue ? (
+                <>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${PRIORITY_COLORS[selectedIssue.priority]}`}
+                  >
+                    {selectedIssue.priority}
+                  </span>
+                  <span className="flex-1 min-w-0 truncate text-sm font-medium text-slate-800">
+                    {selectedIssue.title}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-slate-400">
+                    {selectedProject?.name} · {STATUS_LABELS[selectedIssue.status] ?? selectedIssue.status}
+                  </span>
+                </>
+              ) : (
+                <span className="text-sm text-slate-400">Select an issue…</span>
+              )}
+              <ChevronDown
+                size={14}
+                className={`shrink-0 text-slate-400 transition-transform ${showPicker ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {showPicker && (
+              <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl">
+                {allIssues.map((issue) => {
+                  const proj = projects.find((p) => p.id === issue.projectId);
+                  const sel = issue.id === selectedIssueId;
+                  return (
+                    <button
+                      key={issue.id}
+                      onClick={() => {
+                        setSelectedIssueId(issue.id);
+                        setShowPicker(false);
+                      }}
+                      className={`flex w-full items-center gap-3 border-b border-slate-50 px-4 py-3 text-left last:border-0 transition-colors ${
+                        sel ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`truncate text-sm font-medium ${sel ? 'text-indigo-700' : 'text-slate-800'}`}
+                        >
+                          {issue.title}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-slate-400">
+                          {proj?.name} · {STATUS_LABELS[issue.status] ?? issue.status} · {issue.priority}
+                        </p>
+                      </div>
+                      {sel && <Check size={14} className="shrink-0 text-indigo-600" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex items-center gap-2"><KeyRound size={15} className="text-indigo-600" /><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">API Key (Optional)</p></div>
-        <input
-          value={userApiKey}
-          onChange={(e) => updateApiKey(e.target.value)}
-          placeholder="nvapi-..."
-          type="password"
-          className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none"
-        />
-        <p className="mt-1 text-[11px] text-slate-400">Paste your NVIDIA API key here. It takes effect immediately, is saved in this browser, and is sent only with AI requests.</p>
+      {/* Chat messages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-5 space-y-4">
+        {messages.length === 0 && !streaming && (
+          <div className="flex h-full flex-col items-center justify-center py-16 text-center">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-100 to-violet-100">
+              <Sparkles size={28} className="text-indigo-500" />
+            </div>
+            <p className="text-base font-semibold text-slate-700">AI Copilot</p>
+            <p className="mt-1.5 max-w-xs text-sm text-slate-400 leading-relaxed">
+              Use the quick actions below or ask anything about the selected issue.
+            </p>
+          </div>
+        )}
+
+        {messages.map((msg) =>
+          msg.role === 'user' ? (
+            <div key={msg.id} className="flex justify-end">
+              <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-indigo-600 px-4 py-2.5 text-sm text-white leading-relaxed">
+                {msg.content}
+              </div>
+            </div>
+          ) : (
+            <div key={msg.id} className="flex justify-start">
+              <div
+                className={`max-w-[90%] rounded-2xl rounded-tl-sm border px-4 py-3 shadow-sm ${
+                  msg.error
+                    ? 'border-red-100 bg-red-50'
+                    : 'border-slate-100 bg-white'
+                }`}
+              >
+                {msg.action === 'subtasks' ? (
+                  <ol className="space-y-2">
+                    {parseSubtasks(msg.content).map((task, i) => (
+                      <li key={i} className="flex gap-3 text-sm text-slate-700">
+                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-bold text-indigo-700">
+                          {i + 1}
+                        </span>
+                        <span className="leading-relaxed">{task}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p
+                    className={`whitespace-pre-wrap text-sm leading-relaxed ${
+                      msg.error ? 'text-red-600' : 'text-slate-700'
+                    }`}
+                  >
+                    {msg.content}
+                  </p>
+                )}
+
+                {/* Apply buttons */}
+                {!msg.error && msg.action === 'priority' && parsePriority(msg.content) && (
+                  <div className="mt-3 border-t border-slate-100 pt-3">
+                    {msg.applied ? (
+                      <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                        <Check size={12} /> Priority updated
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => applyMessage(msg)}
+                        disabled={!!applyingId}
+                        className="flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-50"
+                      >
+                        {applyingId === msg.id ? (
+                          <Loader2 size={11} className="animate-spin" />
+                        ) : null}
+                        Set priority to {parsePriority(msg.content)}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {!msg.error && msg.action === 'comment' && (
+                  <div className="mt-3 border-t border-slate-100 pt-3">
+                    {msg.applied ? (
+                      <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                        <Check size={12} /> Comment posted
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => applyMessage(msg)}
+                        disabled={!!applyingId}
+                        className="flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-50"
+                      >
+                        {applyingId === msg.id ? (
+                          <Loader2 size={11} className="animate-spin" />
+                        ) : null}
+                        Post comment
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ),
+        )}
+
+        {/* Streaming bubble */}
+        {streaming && (
+          <div className="flex justify-start">
+            <div className="max-w-[90%] rounded-2xl rounded-tl-sm border border-slate-100 bg-white px-4 py-3 shadow-sm">
+              {streamText ? (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                  {streamText}
+                  <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-indigo-500 align-text-bottom" />
+                </p>
+              ) : (
+                <div className="flex h-5 items-center gap-1">
+                  <span
+                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300"
+                    style={{ animationDelay: '0ms' }}
+                  />
+                  <span
+                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300"
+                    style={{ animationDelay: '150ms' }}
+                  />
+                  <span
+                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300"
+                    style={{ animationDelay: '300ms' }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Input area */}
+      <div className="shrink-0 border-t border-slate-100 bg-white px-4 pb-4 pt-3">
+        {/* Quick action chips */}
+        <div className="mb-3 flex gap-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+          {QUICK_ACTIONS.map(({ label, action, emoji }) => (
+            <button
+              key={action}
+              onClick={() => sendMessage(`${emoji} ${label}`, action)}
+              disabled={streaming || !selectedIssueId}
+              className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-40"
+            >
+              {emoji} {label}
+            </button>
+          ))}
+        </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Chat Commands</p>
-        <p className="mt-1 text-[11px] text-slate-400">Use /summary, /subtasks, /priority, /comment for suggestions, or /set-status todo|in_progress|done to update issue status directly.</p>
-        <form onSubmit={runChatCommand} className="mt-3 flex gap-2">
-          <input
-            value={chatCommand}
-            onChange={(e) => setChatCommand(e.target.value)}
-            placeholder="/summary"
-            className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-indigo-300 focus:outline-none"
+        {/* Text input row */}
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={!selectedIssueId}
+            rows={1}
+            placeholder={
+              selectedIssue ? `Ask about "${selectedIssue.title}"…` : 'Select an issue to start…'
+            }
+            className="flex-1 resize-none overflow-y-auto rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700 placeholder-slate-400 transition-colors focus:border-indigo-300 focus:outline-none disabled:opacity-50"
+            style={{ minHeight: '42px', maxHeight: '120px' }}
           />
-          <button
-            type="submit"
-            disabled={loading === 'chat' || !selectedIssueId}
-            className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {loading === 'chat' ? 'Running…' : 'Send'}
-          </button>
-        </form>
-        {chatResult && <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{chatResult}</p>}
+
+          {streaming ? (
+            <button
+              onClick={cancelStream}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-500 transition-colors hover:bg-red-100"
+              title="Stop"
+            >
+              <Square size={15} />
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                const text = input.trim();
+                if (text) sendMessage(text);
+              }}
+              disabled={!input.trim() || !selectedIssueId}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white transition-colors hover:bg-indigo-700 disabled:opacity-40"
+              title="Send (Enter)"
+            >
+              <Send size={15} />
+            </button>
+          )}
+        </div>
       </div>
-
-
-      <div>{/* selector */}
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Analyzing Issue</p>
-        <button onClick={() => setShowPicker(!showPicker)} className="w-full flex items-center gap-3 rounded-2xl bg-white border border-slate-200 p-3.5 text-left shadow-sm">
-          <div className="h-8 w-8 shrink-0 rounded-lg bg-indigo-100 flex items-center justify-center"><Zap size={15} className="text-indigo-600" /></div>
-          <div className="flex-1 min-w-0"><p className="text-[14px] font-semibold text-slate-900 truncate leading-tight">{selectedIssue?.title ?? 'Select an issue'}</p><p className="text-[11px] text-slate-400 mt-0.5">{selectedProject?.name ?? ''} · {selectedIssue?.status?.replace('_', ' ') ?? ''}</p></div>
-          <ChevronDown size={16} className={`text-slate-400 shrink-0 transition-transform duration-200 ${showPicker ? 'rotate-180' : ''}`} />
-        </button>
-        {showPicker && <div className="mt-1 rounded-2xl bg-white border border-slate-200 shadow-xl overflow-hidden max-h-60 overflow-y-auto">{allIssues.map((issue) => { const proj = projects.find((p) => p.id === issue.projectId); const isSelected = issue.id === selectedIssueId; return <button key={issue.id} onClick={() => { setSelectedIssueId(issue.id); setShowPicker(false); setResult(null); }} className={`w-full text-left px-4 py-3 border-b border-slate-50 last:border-0 flex items-center justify-between gap-3 ${isSelected ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}><div className="min-w-0"><p className={`text-sm font-medium truncate ${isSelected ? 'text-indigo-700' : 'text-slate-800'}`}>{issue.title}</p><p className="text-[10px] text-slate-400 mt-0.5">{proj?.name} · {issue.status.replace('_', ' ')}</p></div>{isSelected && <Check size={14} className="text-indigo-600 shrink-0" />}</button>; })}</div>}
-      </div>
-
-      <div><p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Actions</p><div className="grid grid-cols-2 gap-3">{AI_ACTIONS.map((action) => { const isLoading = loading === action.key; return <button key={action.key} onClick={() => runAction(action.key)} disabled={!!loading || !selectedIssueId} className={`bg-gradient-to-br ${action.gradient} border ${action.accentBorder} rounded-2xl p-4 text-left transition active:scale-[0.97] disabled:opacity-50`}><span className="text-2xl">{action.emoji}</span><p className="mt-2 text-[13px] font-bold text-slate-800">{action.label}</p><p className="mt-0.5 text-[11px] text-slate-500 leading-relaxed">{action.description}</p>{isLoading && <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-500"><Loader2 size={11} className="animate-spin" /><span>Thinking…</span></div>}</button>; })}</div></div>
-
-      {result && resultAction && <div className="rounded-2xl bg-white border border-indigo-200 shadow-sm overflow-hidden"><div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-indigo-100"><div className="flex items-center gap-2"><Sparkles size={14} className="text-indigo-600" /><span className="text-[13px] font-bold text-indigo-800">{resultAction.emoji} {resultAction.label}</span></div><button onClick={() => setResult(null)} className="text-slate-400 hover:text-slate-600 transition"><X size={15} /></button></div><div className="px-4 py-4"><p className="text-[14px] text-slate-700 whitespace-pre-wrap leading-relaxed">{result.text}</p></div><div className="flex border-t border-slate-100 divide-x divide-slate-100"><button onClick={() => setResult(null)} className="flex-1 py-3 text-sm text-slate-500 hover:bg-slate-50 transition font-medium">Dismiss</button><button className="flex-1 py-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 transition">Apply to Issue</button></div></div>}
-
-      {!result && !loading && <div className="rounded-2xl bg-white border border-dashed border-slate-200 p-6 text-center"><p className="text-2xl mb-2">✨</p><p className="text-sm font-medium text-slate-700">Select an issue and run an action</p><p className="text-xs text-slate-400 mt-1">AI suggestions require your review before any changes are saved</p></div>}
     </div>
   );
 }
