@@ -65,7 +65,7 @@ describe('useTouchDragPluginGroup', () => {
 
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(onDragMove).toHaveBeenCalledWith('issue-1', { x: 180, y: 250 });
-    expect(onDragReorderPreview).toHaveBeenCalledWith('issue-1', { x: 180, y: 250 });
+    expect(onDragReorderPreview).not.toHaveBeenCalled();
     expect(api.touchGhost).toEqual({ x: 170, y: 230 });
 
     act(() => {
