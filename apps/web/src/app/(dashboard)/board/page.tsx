@@ -97,6 +97,7 @@ export default function BoardPage() {
   // Physics state — inner wrapper refs separate from FLIP outer wrappers
   const physicsWrapperRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const draggingIdRef = useRef<string | null>(null);
+  const activeTouchIdentifierRef = useRef<number | null>(null);
   const cursorRef = useRef<{ x: number; y: number } | null>(null);
   const physicsSpring = useRef<Map<string, { y: number; vy: number }>>(new Map());
   const physicsRafId = useRef<number | null>(null);
@@ -435,18 +436,33 @@ export default function BoardPage() {
         }).catch(() => {});
       }
       stopAutoScroll();
+      activeTouchIdentifierRef.current = null;
       snapshotPositions();
       draggingIdRef.current = null;
       setDraggingId(null);
       setDragOverCol(null);
       setHoverTarget(null);
     },
-    onDragCancel: () => {},
+    onDragCancel: () => {
+      activeTouchIdentifierRef.current = null;
+    },
   });
   const touchGhost = touchDragPluginGroup.touchGhost;
 
+
+  function pickTrackedTouch(touches: TouchList | null | undefined): Touch | null {
+    if (!touches || touches.length === 0) return null;
+    const tracked = activeTouchIdentifierRef.current;
+    if (tracked === null) return touches[0] ?? null;
+    for (let i = 0; i < touches.length; i += 1) {
+      const touch = touches.item(i);
+      if (touch && touch.identifier === tracked) return touch;
+    }
+    return null;
+  }
+
   function onTouchMove(e: React.TouchEvent) {
-    const touch = e.touches[0];
+    const touch = pickTrackedTouch(e.touches);
     if (!touch) return;
     touchDragPluginGroup.onTouchMoveCard(touch, () => e.preventDefault());
   }
@@ -456,19 +472,19 @@ export default function BoardPage() {
   }
 
   function onTouchEnd(e: React.TouchEvent) {
-    finishTouchDrag(e.changedTouches[0]);
+    finishTouchDrag(pickTrackedTouch(e.changedTouches) ?? undefined);
   }
 
   useEffect(() => {
     if (!draggingId || !touchGhost) return;
     const onWindowTouchMove = (event: TouchEvent) => {
-      const touch = event.touches[0];
+      const touch = pickTrackedTouch(event.touches);
       if (!touch) return;
       event.preventDefault();
       touchDragPluginGroup.onTouchMoveCard(touch);
     };
     const onWindowTouchEnd = (event: TouchEvent) => {
-      finishTouchDrag(event.changedTouches[0]);
+      finishTouchDrag(pickTrackedTouch(event.changedTouches) ?? undefined);
     };
     window.addEventListener('touchmove', onWindowTouchMove, { passive: false });
     window.addEventListener('touchend', onWindowTouchEnd, { passive: false });
@@ -591,8 +607,9 @@ export default function BoardPage() {
                         }}
                         onTouchStart={(e) => {
                           e.preventDefault();
-                          const touch = e.touches[0];
+                          const touch = pickTrackedTouch(e.touches);
                           if (!touch) return;
+                          activeTouchIdentifierRef.current = touch.identifier;
                           touchDragPluginGroup.onTouchStartCard(issue.id, touch);
                         }}
                         onTouchMove={onTouchMove}
