@@ -86,6 +86,7 @@ export default function BoardPage() {
   const touchDraggingId = useRef<string | null>(null);
   const touchStartPoint = useRef<{ x: number; y: number } | null>(null);
   const [touchGhost, setTouchGhost] = useState<{ x: number; y: number } | null>(null);
+  const touchGhostRef = useRef<HTMLDivElement | null>(null);
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const autoScrollFrame = useRef<number | null>(null);
   const autoScrollVelocity = useRef(0);
@@ -405,7 +406,10 @@ export default function BoardPage() {
     e.preventDefault();
     cursorRef.current = { x: touch.clientX, y: touch.clientY };
     updateAutoScroll(touch.clientX);
-    setTouchGhost({ x: touch.clientX, y: touch.clientY });
+    if (touchGhostRef.current) {
+      touchGhostRef.current.style.left = `${touch.clientX}px`;
+      touchGhostRef.current.style.top = `${touch.clientY}px`;
+    }
     setDragOverCol(detectColumnFromPoint(touch.clientX, touch.clientY));
 
     const hoverEl = document.elementFromPoint(touch.clientX, touch.clientY)?.closest<HTMLElement>('[data-issue-id]');
@@ -668,6 +672,7 @@ export default function BoardPage() {
       {/* Touch drag ghost */}
       {touchGhost && touchGhostIssue && (
         <div
+          ref={touchGhostRef}
           className="pointer-events-none fixed z-50 rounded-xl bg-white p-3 shadow-2xl opacity-[0.97]"
           style={{
             left: touchGhost.x,
