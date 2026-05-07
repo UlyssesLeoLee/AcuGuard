@@ -26,7 +26,7 @@ export function useTouchDragPluginGroup(params: UseTouchDragPluginGroupParams) {
     }
   }, []);
 
-  const beginTouch = useCallback((id: string, touch: Touch) => {
+  const beginTouch = useCallback((id: string, touch: Pick<Touch, 'clientX' | 'clientY'>) => {
     startPointRef.current = { x: touch.clientX, y: touch.clientY };
     clearLongPressTimer();
     longPressTimer.current = setTimeout(() => {
