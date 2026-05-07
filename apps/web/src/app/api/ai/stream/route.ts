@@ -5,7 +5,7 @@ import { createThinkFilter } from '@/lib/stream-filter';
 
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'qwen/qwen3-235b-a22b';
-const NVIDIA_DEFAULT_API_KEY = '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';
+const NVIDIA_DEFAULT_API_KEY = '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';
 
 const ACTION_INSTRUCTIONS: Record<string, string> = {
   summary: 'Generate one concise issue summary (3-5 sentences) focused on scope, delivery risks, and intent. Write in plain prose.',

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { normalizeSuggestions, pickApiKey } from '@/lib/ai';
 
 const TEST_NVIDIA_KEY = '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';
-const DEFAULT_KEY = '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';
+const DEFAULT_KEY = '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';
 
 // ─── normalizeSuggestions ────────────────────────────────────────────────────
 

@@ -35,7 +35,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const API_KEY_STORAGE_KEY = 'acuguard.user.nvidia_api_key';
-const DEFAULT_NVIDIA_API_KEY = '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';
+const DEFAULT_NVIDIA_API_KEY = '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';
 
 function parsePriority(text: string): IssuePriority | null {
   const lower = text.toLowerCase();
@@ -66,16 +66,14 @@ export default function AIPage() {
   const [streamText, setStreamText] = useState('');
   const [input, setInput] = useState('');
   const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState(DEFAULT_NVIDIA_API_KEY);
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const streamTextRef = useRef('');
 
-  const userApiKey = useMemo(() => {
-    if (typeof window === 'undefined') return DEFAULT_NVIDIA_API_KEY;
-    return window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() || DEFAULT_NVIDIA_API_KEY;
-  }, []);
+  const userApiKey = useMemo(() => apiKeyInput.trim() || DEFAULT_NVIDIA_API_KEY, [apiKeyInput]);
 
   const selectedIssue = useMemo(
     () => allIssues.find((i) => i.id === selectedIssueId),
@@ -85,6 +83,12 @@ export default function AIPage() {
     () => (selectedIssue ? projects.find((p) => p.id === selectedIssue.projectId) : null),
     [projects, selectedIssue],
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedKey = window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim();
+    setApiKeyInput(storedKey || DEFAULT_NVIDIA_API_KEY);
+  }, []);
 
   useEffect(() => {
     fetch('/api/issues')
@@ -469,6 +473,42 @@ export default function AIPage() {
               {emoji} {label}
             </button>
           ))}
+        </div>
+
+        <div className="mb-3">
+          <label className="mb-1 block text-xs font-medium text-slate-500">NVIDIA API Key</label>
+          <input
+            type="password"
+            value={apiKeyInput}
+            onChange={(e) => setApiKeyInput(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700 placeholder-slate-400 focus:border-indigo-300 focus:outline-none"
+            placeholder="nvapi-..."
+          />
+          <div className="mt-1 flex gap-2">
+            <button
+              onClick={() => {
+                const value = apiKeyInput.trim();
+                if (value) {
+                  window.localStorage.setItem(API_KEY_STORAGE_KEY, value);
+                } else {
+                  window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+                  setApiKeyInput(DEFAULT_NVIDIA_API_KEY);
+                }
+              }}
+              className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-200"
+            >
+              Save key
+            </button>
+            <button
+              onClick={() => {
+                window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+                setApiKeyInput(DEFAULT_NVIDIA_API_KEY);
+              }}
+              className="rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-200"
+            >
+              Use default key
+            </button>
+          </div>
         </div>
 
         {/* Text input row */}
