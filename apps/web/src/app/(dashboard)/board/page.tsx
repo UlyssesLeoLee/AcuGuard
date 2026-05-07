@@ -67,6 +67,12 @@ const STATUS_ICON_COLOR: Record<IssueStatus, string> = {
   done: 'text-emerald-500',
 };
 
+// Physics constants
+const REPULSION_RADIUS = 120;
+const REPULSION_STRENGTH = 18;
+const SPRING_K = 0.13;
+const DAMPING = 0.74;
+
 export default function BoardPage() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
@@ -88,6 +94,13 @@ export default function BoardPage() {
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const prevPositions = useRef<Map<string, DOMRect>>(new Map());
   const draggingCardHeight = useRef<number>(80);
+
+  // Physics state — inner wrapper refs separate from FLIP outer wrappers
+  const physicsWrapperRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const draggingIdRef = useRef<string | null>(null);
+  const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  const physicsSpring = useRef<Map<string, { y: number; vy: number }>>(new Map());
+  const physicsRafId = useRef<number | null>(null);
 
   useEffect(() => {
     fetch('/api/issues')
@@ -122,25 +135,19 @@ export default function BoardPage() {
     return COLUMNS.map((col) => ({ ...col, items: issuesWithPreviewOrder.filter((i) => i.status === col.key) }));
   }, [displayIssues, draggingId, hoverTarget]);
 
-  // Capture all card positions BEFORE a state change that will cause layout shift.
-  // Must be called synchronously before any setState that changes grouped.
   function snapshotPositions() {
     cardRefs.current.forEach((el, id) => {
       prevPositions.current.set(id, el.getBoundingClientRect());
     });
   }
 
-  // FLIP: after every render where grouped changed, animate cards from their
-  // previous positions to their new positions using Web Animations API.
+  // FLIP: animate cards from previous layout positions to new ones
   useLayoutEffect(() => {
     const toAnimate: [HTMLDivElement, number][] = [];
 
     cardRefs.current.forEach((el, id) => {
       const prev = prevPositions.current.get(id);
       const next = el.getBoundingClientRect();
-      // Update stored position FIRST so subsequent snapshots are accurate,
-      // even while animations are running (getBoundingClientRect returns the
-      // layout position, not the in-flight animation position, before first paint).
       prevPositions.current.set(id, next);
       if (!prev) return;
       const dy = prev.top - next.top;
@@ -154,6 +161,82 @@ export default function BoardPage() {
       );
     });
   }, [grouped]);
+
+  // Physics loop — applies spring-based repulsion to inner wrappers while dragging
+  function physicsLoop() {
+    let anyActive = false;
+
+    physicsWrapperRefs.current.forEach((el, id) => {
+      if (id === draggingIdRef.current) return;
+      const state = physicsSpring.current.get(id) ?? { y: 0, vy: 0 };
+
+      let targetY = 0;
+      const cursor = cursorRef.current;
+      if (draggingIdRef.current !== null && cursor !== null) {
+        const rect = el.getBoundingClientRect();
+        const centerY = rect.top + rect.height / 2;
+        const centerX = rect.left + rect.width / 2;
+        // Blend X distance at half weight so only same-column cards are strongly repelled
+        const dist = Math.hypot((centerX - cursor.x) * 0.4, centerY - cursor.y);
+        if (dist < REPULSION_RADIUS) {
+          const t = 1 - dist / REPULSION_RADIUS;
+          targetY = Math.sign(centerY - cursor.y) * t * t * REPULSION_STRENGTH;
+        }
+      }
+
+      state.vy = state.vy * DAMPING + (targetY - state.y) * SPRING_K;
+      state.y += state.vy;
+      physicsSpring.current.set(id, state);
+
+      if (Math.abs(state.y) > 0.05 || Math.abs(state.vy) > 0.05) {
+        anyActive = true;
+        el.style.transform = `translateY(${state.y.toFixed(2)}px)`;
+      } else if (el.style.transform) {
+        el.style.transform = '';
+        state.y = 0;
+        state.vy = 0;
+      }
+    });
+
+    if (anyActive || draggingIdRef.current !== null) {
+      physicsRafId.current = requestAnimationFrame(physicsLoop);
+    } else {
+      physicsRafId.current = null;
+    }
+  }
+
+  function startPhysics() {
+    if (physicsRafId.current !== null) return;
+    physicsRafId.current = requestAnimationFrame(physicsLoop);
+  }
+
+  function clearAllPhysicsTransforms() {
+    physicsWrapperRefs.current.forEach((el) => {
+      el.style.transition = '';
+      el.style.transform = '';
+      el.style.boxShadow = '';
+    });
+    physicsSpring.current.clear();
+  }
+
+  function applyCardTilt(id: string, e: React.MouseEvent) {
+    const el = physicsWrapperRefs.current.get(id);
+    if (!el) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const dx = (e.clientX - rect.left) / rect.width * 2 - 1;
+    const dy = (e.clientY - rect.top) / rect.height * 2 - 1;
+    el.style.transition = 'none';
+    el.style.transform = `perspective(500px) rotateX(${(-dy * 5).toFixed(1)}deg) rotateY(${(dx * 5).toFixed(1)}deg) translateY(-3px) scale(1.02)`;
+    el.style.boxShadow = `${(dx * 6).toFixed(1)}px ${(dy * 6 - 14).toFixed(1)}px 28px rgba(0,0,0,0.14)`;
+  }
+
+  function resetCardTilt(id: string) {
+    const el = physicsWrapperRefs.current.get(id);
+    if (!el) return;
+    el.style.transition = 'transform 0.5s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.4s ease';
+    el.style.transform = '';
+    el.style.boxShadow = '';
+  }
 
   function stopAutoScroll() {
     if (autoScrollFrame.current !== null) {
@@ -194,17 +277,19 @@ export default function BoardPage() {
     startAutoScroll();
   }
 
-  useEffect(() => () => stopAutoScroll(), []);
+  useEffect(() => () => { stopAutoScroll(); draggingIdRef.current = null; }, []);
 
   function onDragStart(id: string, e: React.DragEvent) {
-    // Measure card height before it becomes a placeholder
     const cardEl = cardRefs.current.get(id);
     if (cardEl) draggingCardHeight.current = cardEl.getBoundingClientRect().height;
     snapshotPositions();
+    // Clear any tilt state before physics takes over
+    clearAllPhysicsTransforms();
+    draggingIdRef.current = id;
     setDraggingId(id);
     autoScrollVelocity.current = 0;
+    startPhysics();
 
-    // Custom drag image: styled card thumbnail with priority dot + title
     const issue = issues.find((i) => i.id === id);
     if (issue) {
       const color = PRIORITY_HEX[issue.priority];
@@ -220,6 +305,7 @@ export default function BoardPage() {
 
   function onDragOver(e: React.DragEvent, colKey: IssueStatus) {
     e.preventDefault();
+    cursorRef.current = { x: e.clientX, y: e.clientY };
     setDragOverCol(colKey);
     if (draggingId) updateAutoScroll(e.clientX);
   }
@@ -227,6 +313,7 @@ export default function BoardPage() {
   function onDrop(colKey: IssueStatus) {
     if (!draggingId) return;
     snapshotPositions();
+    draggingIdRef.current = null;
     setLocalOverrides((prev) => ({ ...prev, [draggingId]: colKey }));
     setDraggingId(null);
     setDragOverCol(null);
@@ -240,6 +327,7 @@ export default function BoardPage() {
   function onDragEnd() {
     stopAutoScroll();
     snapshotPositions();
+    draggingIdRef.current = null;
     setDraggingId(null);
     setDragOverCol(null);
     setHoverTarget(null);
@@ -288,16 +376,18 @@ export default function BoardPage() {
     touchStartPoint.current = { x: touch.clientX, y: touch.clientY };
     clearLongPressTimer();
     longPressTimer.current = setTimeout(() => {
-      // Measure height and snapshot before drag starts
       const cardEl = cardRefs.current.get(id);
       if (cardEl) draggingCardHeight.current = cardEl.getBoundingClientRect().height;
       snapshotPositions();
+      clearAllPhysicsTransforms();
+      draggingIdRef.current = id;
       touchDraggingId.current = id;
       setDraggingId(id);
       setTouchGhost({ x: touch.clientX, y: touch.clientY });
+      cursorRef.current = { x: touch.clientX, y: touch.clientY };
+      startPhysics();
       const col = detectColumnFromPoint(touch.clientX, touch.clientY);
       if (col) setDragOverCol(col);
-      // Haptic feedback on supported devices
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
     }, 300);
   }
@@ -313,6 +403,7 @@ export default function BoardPage() {
     }
     if (!activeId) return;
     e.preventDefault();
+    cursorRef.current = { x: touch.clientX, y: touch.clientY };
     updateAutoScroll(touch.clientX);
     setTouchGhost({ x: touch.clientX, y: touch.clientY });
     setDragOverCol(detectColumnFromPoint(touch.clientX, touch.clientY));
@@ -321,7 +412,6 @@ export default function BoardPage() {
     if (hoverEl && hoverEl.dataset.issueId && hoverEl.dataset.issueId !== activeId) {
       const rect = hoverEl.getBoundingClientRect();
       const newTarget = { targetId: hoverEl.dataset.issueId, placeAfter: touch.clientY > rect.top + rect.height / 2 };
-      // Only snapshot + update when target card / position actually changes
       if (!hoverTarget || hoverTarget.targetId !== newTarget.targetId || hoverTarget.placeAfter !== newTarget.placeAfter) {
         snapshotPositions();
         setHoverTarget(newTarget);
@@ -352,6 +442,7 @@ export default function BoardPage() {
     }
     stopAutoScroll();
     snapshotPositions();
+    draggingIdRef.current = null;
     touchDraggingId.current = null;
     touchStartPoint.current = null;
     setTouchGhost(null);
@@ -398,7 +489,7 @@ export default function BoardPage() {
         /* ── Kanban view ─────────────────────────────── */
         <div
           ref={boardScrollRef}
-          onDragOver={(e) => draggingId && updateAutoScroll(e.clientX)}
+          onDragOver={(e) => { if (draggingId) { cursorRef.current = { x: e.clientX, y: e.clientY }; updateAutoScroll(e.clientX); } }}
           onDrop={stopAutoScroll}
           className="flex gap-3 px-4 py-4 overflow-x-auto no-scrollbar snap-x snap-mandatory"
         >
@@ -418,7 +509,6 @@ export default function BoardPage() {
                 onDragOver={(e) => onDragOver(e, col.key)}
                 onDrop={() => onDrop(col.key)}
                 onDragLeave={(e) => {
-                  // Only clear when truly leaving the column, not entering a child element
                   if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCol(null);
                 }}
               >
@@ -439,7 +529,6 @@ export default function BoardPage() {
                     const assignee = issue.assigneeId ? users.find((u) => u.id === issue.assigneeId) : null;
                     const isDragging = draggingId === issue.id;
 
-                    // Render a dashed placeholder at the drop-preview position
                     if (isDragging) {
                       return (
                         <div
@@ -452,6 +541,7 @@ export default function BoardPage() {
                     }
 
                     return (
+                      // Outer layout shell: FLIP target, drag handlers, cursor
                       <div
                         key={issue.id}
                         data-issue-id={issue.id}
@@ -482,25 +572,43 @@ export default function BoardPage() {
                           snapshotPositions();
                           setHoverTarget({ targetId: issue.id, placeAfter });
                         }}
-                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all duration-150 touch-none select-none [-webkit-touch-callout:none] hover:-translate-y-0.5 hover:shadow-md`}
+                        onMouseMove={(e) => {
+                          if (draggingId) return;
+                          applyCardTilt(issue.id, e);
+                        }}
+                        onMouseLeave={() => {
+                          if (draggingId) return;
+                          resetCardTilt(issue.id);
+                        }}
+                        className="touch-none select-none [-webkit-touch-callout:none] cursor-grab active:cursor-grabbing"
                       >
-                        <div className="flex items-start justify-between mb-2">
-                          <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${PRIORITY_DOT[issue.priority]}`} />
-                          <GripVertical size={13} className="text-slate-300 -mr-0.5" />
-                        </div>
-                        <Link href={`/issues/${issue.id}`} draggable={false}>
-                          <p className="text-[13px] font-semibold text-slate-800 leading-snug line-clamp-2 hover:text-indigo-600 transition-colors">
-                            {issue.title}
-                          </p>
-                        </Link>
-                        {assignee && (
-                          <div className="mt-2.5 flex items-center gap-1.5">
-                            <div className="h-5 w-5 rounded-full bg-indigo-100 flex items-center justify-center text-[8px] font-bold text-indigo-700">
-                              {getInitials(assignee.name)}
-                            </div>
-                            <span className="text-[10px] text-slate-500 truncate">{assignee.name.split(' ')[0]}</span>
+                        {/* Inner visual card: physics repulsion + tilt transforms applied here */}
+                        <div
+                          ref={(el) => {
+                            if (el) physicsWrapperRefs.current.set(issue.id, el);
+                            else physicsWrapperRefs.current.delete(issue.id);
+                          }}
+                          className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm`}
+                          style={{ willChange: 'transform', transformStyle: 'preserve-3d' }}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${PRIORITY_DOT[issue.priority]}`} />
+                            <GripVertical size={13} className="text-slate-300 -mr-0.5" />
                           </div>
-                        )}
+                          <Link href={`/issues/${issue.id}`} draggable={false}>
+                            <p className="text-[13px] font-semibold text-slate-800 leading-snug line-clamp-2 hover:text-indigo-600 transition-colors">
+                              {issue.title}
+                            </p>
+                          </Link>
+                          {assignee && (
+                            <div className="mt-2.5 flex items-center gap-1.5">
+                              <div className="h-5 w-5 rounded-full bg-indigo-100 flex items-center justify-center text-[8px] font-bold text-indigo-700">
+                                {getInitials(assignee.name)}
+                              </div>
+                              <span className="text-[10px] text-slate-500 truncate">{assignee.name.split(' ')[0]}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -557,7 +665,7 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* Touch drag ghost: full card replica following the finger */}
+      {/* Touch drag ghost */}
       {touchGhost && touchGhostIssue && (
         <div
           className="pointer-events-none fixed z-50 rounded-xl bg-white p-3 shadow-2xl opacity-[0.97]"
@@ -565,7 +673,6 @@ export default function BoardPage() {
             left: touchGhost.x,
             top: touchGhost.y,
             width: 230,
-            // Position so finger is at ~80% down the card, card extends above finger
             transform: 'translateX(-50%) translateY(-80%) rotate(3deg)',
             border: '1px solid #e2e8f0',
             borderLeft: '3px solid #6366f1',
