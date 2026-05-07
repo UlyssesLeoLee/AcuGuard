@@ -6,6 +6,7 @@ import { Circle, CircleDot, CheckCircle2, GripVertical, List, LayoutGrid } from 
 import { Issue, IssueStatus } from '@/lib/types';
 import { users } from '@/lib/mock-data';
 import { getInitials, formatRelativeTime } from '@/lib/utils';
+import { useTouchDragPluginGroup } from '@/components/plugins/board/useTouchDragPluginGroup';
 
 type ViewMode = 'kanban' | 'list';
 
@@ -82,12 +83,6 @@ export default function BoardPage() {
   const [hoverTarget, setHoverTarget] = useState<{ targetId: string; placeAfter: boolean } | null>(null);
   const [localOverrides, setLocalOverrides] = useState<Record<string, IssueStatus>>({});
 
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const touchDraggingId = useRef<string | null>(null);
-  const touchStartPoint = useRef<{ x: number; y: number } | null>(null);
-  const [touchGhost, setTouchGhost] = useState<{ x: number; y: number } | null>(null);
-  const touchGhostRef = useRef<HTMLDivElement | null>(null);
-  const touchGhostOffset = useRef<{ x: number; y: number }>({ x: 16, y: 16 });
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const autoScrollFrame = useRef<number | null>(null);
   const autoScrollVelocity = useRef(0);
@@ -96,6 +91,7 @@ export default function BoardPage() {
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const prevPositions = useRef<Map<string, DOMRect>>(new Map());
   const draggingCardHeight = useRef<number>(80);
+  const [draggingCardHeightPx, setDraggingCardHeightPx] = useState(80);
 
   // Physics state — inner wrapper refs separate from FLIP outer wrappers
   const physicsWrapperRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -283,7 +279,10 @@ export default function BoardPage() {
 
   function onDragStart(id: string, e: React.DragEvent) {
     const cardEl = cardRefs.current.get(id);
-    if (cardEl) draggingCardHeight.current = cardEl.getBoundingClientRect().height;
+    if (cardEl) {
+      draggingCardHeight.current = cardEl.getBoundingClientRect().height;
+      setDraggingCardHeightPx(draggingCardHeight.current);
+    }
     snapshotPositions();
     // Clear any tilt state before physics takes over
     clearAllPhysicsTransforms();
@@ -364,104 +363,75 @@ export default function BoardPage() {
     });
   }
 
-  function clearLongPressTimer() {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }
-
-  function onTouchStart(id: string, e: React.TouchEvent) {
-    e.preventDefault();
-    const touch = e.touches[0];
-    if (!touch) return;
-    touchStartPoint.current = { x: touch.clientX, y: touch.clientY };
-    clearLongPressTimer();
-    longPressTimer.current = setTimeout(() => {
+  const touchDragPluginGroup = useTouchDragPluginGroup({
+    detectColumnFromPoint,
+    onDragStart: (id, touch) => {
       const cardEl = cardRefs.current.get(id);
-      if (cardEl) draggingCardHeight.current = cardEl.getBoundingClientRect().height;
+      if (cardEl) {
+        draggingCardHeight.current = cardEl.getBoundingClientRect().height;
+        setDraggingCardHeightPx(draggingCardHeight.current);
+      }
       snapshotPositions();
       clearAllPhysicsTransforms();
       draggingIdRef.current = id;
-      touchDraggingId.current = id;
       setDraggingId(id);
-      const rect = cardEl?.getBoundingClientRect();
-      touchGhostOffset.current = rect
-        ? { x: touch.clientX - rect.left, y: touch.clientY - rect.top }
-        : { x: 16, y: 16 };
-      setTouchGhost({ x: touch.clientX - touchGhostOffset.current.x, y: touch.clientY - touchGhostOffset.current.y });
-      cursorRef.current = { x: touch.clientX, y: touch.clientY };
+      cursorRef.current = touch;
       startPhysics();
-      const col = detectColumnFromPoint(touch.clientX, touch.clientY);
+      const col = detectColumnFromPoint(touch.x, touch.y);
       if (col) setDragOverCol(col);
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
-    }, 300);
-  }
-
-  function handleTouchMove(touch: Pick<Touch, 'clientX' | 'clientY'>, preventDefault?: () => void) {
-    if (!touch) return;
-    const activeId = touchDraggingId.current;
-    const start = touchStartPoint.current;
-    if (!activeId && start) {
-      const moved = Math.hypot(touch.clientX - start.x, touch.clientY - start.y);
-      if (moved > 8) clearLongPressTimer();
-    }
-    if (!activeId) return;
-    preventDefault?.();
-    cursorRef.current = { x: touch.clientX, y: touch.clientY };
-    updateAutoScroll(touch.clientX);
-    if (touchGhostRef.current) {
-      touchGhostRef.current.style.left = `${touch.clientX - touchGhostOffset.current.x}px`;
-      touchGhostRef.current.style.top = `${touch.clientY - touchGhostOffset.current.y}px`;
-    }
-    setDragOverCol(detectColumnFromPoint(touch.clientX, touch.clientY));
-
-    const hoverEl = document.elementFromPoint(touch.clientX, touch.clientY)?.closest<HTMLElement>('[data-issue-id]');
-    if (hoverEl && hoverEl.dataset.issueId && hoverEl.dataset.issueId !== activeId) {
-      const rect = hoverEl.getBoundingClientRect();
-      const newTarget = { targetId: hoverEl.dataset.issueId, placeAfter: touch.clientY > rect.top + rect.height / 2 };
-      if (!hoverTarget || hoverTarget.targetId !== newTarget.targetId || hoverTarget.placeAfter !== newTarget.placeAfter) {
+      const rect = cardEl?.getBoundingClientRect();
+      return { ghostOffset: rect ? { x: touch.x - rect.left, y: touch.y - rect.top } : { x: 16, y: 16 } };
+    },
+    onDragMove: (_id, touch) => {
+      cursorRef.current = touch;
+      updateAutoScroll(touch.x);
+      setDragOverCol(detectColumnFromPoint(touch.x, touch.y));
+    },
+    onDragReorderPreview: (id, touch) => {
+      const hoverEl = document.elementFromPoint(touch.x, touch.y)?.closest<HTMLElement>('[data-issue-id]');
+      if (hoverEl && hoverEl.dataset.issueId && hoverEl.dataset.issueId !== id) {
+        const rect = hoverEl.getBoundingClientRect();
+        const newTarget = { targetId: hoverEl.dataset.issueId, placeAfter: touch.y > rect.top + rect.height / 2 };
         snapshotPositions();
-        setHoverTarget(newTarget);
+        setHoverTarget((prev) => (prev && prev.targetId === newTarget.targetId && prev.placeAfter === newTarget.placeAfter ? prev : newTarget));
       }
-    }
-  }
+    },
+    onDragEnd: (activeId, touch) => {
+      const dropElement = touch
+        ? document.elementFromPoint(touch.x, touch.y)?.closest<HTMLElement>('[data-issue-id]')
+        : null;
+      if (touch && dropElement && dropElement.dataset.issueId !== activeId) {
+        const rect = dropElement.getBoundingClientRect();
+        reorderByTarget(activeId, dropElement.dataset.issueId ?? null, touch.y > rect.top + rect.height / 2);
+      }
+      const targetCol = touch ? detectColumnFromPoint(touch.x, touch.y) : dragOverCol;
+      if (targetCol) {
+        setLocalOverrides((prev) => ({ ...prev, [activeId]: targetCol }));
+        fetch('/api/issues', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: activeId, status: targetCol }),
+        }).catch(() => {});
+      }
+      stopAutoScroll();
+      snapshotPositions();
+      draggingIdRef.current = null;
+      setDraggingId(null);
+      setDragOverCol(null);
+      setHoverTarget(null);
+    },
+    onDragCancel: () => {},
+  });
+  const touchGhost = touchDragPluginGroup.touchGhost;
 
   function onTouchMove(e: React.TouchEvent) {
     const touch = e.touches[0];
     if (!touch) return;
-    handleTouchMove(touch, () => e.preventDefault());
+    touchDragPluginGroup.onTouchMoveCard(touch, () => e.preventDefault());
   }
 
   function finishTouchDrag(touch?: Pick<Touch, 'clientX' | 'clientY'>) {
-    clearLongPressTimer();
-    const activeId = touchDraggingId.current;
-    if (!activeId) return;
-    const dropElement = touch
-      ? document.elementFromPoint(touch.clientX, touch.clientY)?.closest<HTMLElement>('[data-issue-id]')
-      : null;
-    if (touch && dropElement && dropElement.dataset.issueId !== activeId) {
-      const rect = dropElement.getBoundingClientRect();
-      reorderByTarget(activeId, dropElement.dataset.issueId ?? null, touch.clientY > rect.top + rect.height / 2);
-    }
-    const targetCol = touch ? detectColumnFromPoint(touch.clientX, touch.clientY) : dragOverCol;
-    if (targetCol) {
-      setLocalOverrides((prev) => ({ ...prev, [activeId]: targetCol }));
-      fetch('/api/issues', {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: activeId, status: targetCol }),
-      }).catch(() => {});
-    }
-    stopAutoScroll();
-    snapshotPositions();
-    draggingIdRef.current = null;
-    touchDraggingId.current = null;
-    touchStartPoint.current = null;
-    setTouchGhost(null);
-    setDraggingId(null);
-    setDragOverCol(null);
-    setHoverTarget(null);
+    touchDragPluginGroup.onTouchEndCard(touch);
   }
 
   function onTouchEnd(e: React.TouchEvent) {
@@ -469,12 +439,12 @@ export default function BoardPage() {
   }
 
   useEffect(() => {
-    if (!draggingId || !touchDraggingId.current) return;
+    if (!draggingId || !touchGhost) return;
     const onWindowTouchMove = (event: TouchEvent) => {
       const touch = event.touches[0];
       if (!touch) return;
       event.preventDefault();
-      handleTouchMove(touch);
+      touchDragPluginGroup.onTouchMoveCard(touch);
     };
     const onWindowTouchEnd = (event: TouchEvent) => {
       finishTouchDrag(event.changedTouches[0]);
@@ -487,7 +457,7 @@ export default function BoardPage() {
       window.removeEventListener('touchend', onWindowTouchEnd);
       window.removeEventListener('touchcancel', onWindowTouchEnd);
     };
-  }, [draggingId, dragOverCol, hoverTarget]);
+  }, [draggingId, touchGhost, touchDragPluginGroup]);
 
   const touchGhostIssue = touchGhost && draggingId
     ? displayIssues.find((item) => item.id === draggingId)
@@ -573,7 +543,7 @@ export default function BoardPage() {
                           key={issue.id}
                           data-issue-id={issue.id}
                           className="rounded-xl border-2 border-dashed border-indigo-300/70 bg-indigo-50/40"
-                          style={{ height: draggingCardHeight.current }}
+                          style={{ height: draggingCardHeightPx }}
                         />
                       );
                     }
@@ -598,7 +568,12 @@ export default function BoardPage() {
                           const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
                           reorderByTarget(draggingId, issue.id, e.clientY > rect.top + rect.height / 2);
                         }}
-                        onTouchStart={(e) => onTouchStart(issue.id, e)}
+                        onTouchStart={(e) => {
+                          e.preventDefault();
+                          const touch = e.touches[0];
+                          if (!touch) return;
+                          touchDragPluginGroup.onTouchStartCard(issue.id, touch);
+                        }}
                         onTouchMove={onTouchMove}
                         onTouchEnd={onTouchEnd}
                         onTouchCancel={onTouchEnd}
@@ -706,7 +681,6 @@ export default function BoardPage() {
       {/* Touch drag ghost */}
       {touchGhost && touchGhostIssue && (
         <div
-          ref={touchGhostRef}
           className="pointer-events-none fixed z-50 rounded-xl bg-white p-3 shadow-2xl opacity-[0.97]"
           style={{
             left: touchGhost.x,
