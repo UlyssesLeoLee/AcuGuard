@@ -12,10 +12,14 @@ interface UseTouchDragPluginGroupParams {
   onDragCancel: () => void;
 }
 
+type TouchPoint = Pick<Touch, 'identifier' | 'clientX' | 'clientY'>;
+
 export function useTouchDragPluginGroup(params: UseTouchDragPluginGroupParams) {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const startPointRef = useRef<Point | null>(null);
+  const touchIdentifierRef = useRef<number | null>(null);
+  const latestTouchPointRef = useRef<Point | null>(null);
   const ghostOffsetRef = useRef<Point>({ x: 16, y: 16 });
   const [touchGhost, setTouchGhost] = useState<Point | null>(null);
 
@@ -26,19 +30,24 @@ export function useTouchDragPluginGroup(params: UseTouchDragPluginGroupParams) {
     }
   }, []);
 
-  const beginTouch = useCallback((id: string, touch: Pick<Touch, 'clientX' | 'clientY'>) => {
+  const beginTouch = useCallback((id: string, touch: TouchPoint) => {
     startPointRef.current = { x: touch.clientX, y: touch.clientY };
+    latestTouchPointRef.current = { x: touch.clientX, y: touch.clientY };
+    touchIdentifierRef.current = touch.identifier;
     clearLongPressTimer();
     longPressTimer.current = setTimeout(() => {
-      const { ghostOffset } = params.onDragStart(id, { x: touch.clientX, y: touch.clientY });
+      const startPoint = latestTouchPointRef.current ?? { x: touch.clientX, y: touch.clientY };
+      const { ghostOffset } = params.onDragStart(id, startPoint);
       activeIdRef.current = id;
       ghostOffsetRef.current = ghostOffset;
-      setTouchGhost({ x: touch.clientX - ghostOffset.x, y: touch.clientY - ghostOffset.y });
+      setTouchGhost({ x: startPoint.x - ghostOffset.x, y: startPoint.y - ghostOffset.y });
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
     }, 300);
   }, [clearLongPressTimer, params]);
 
-  const moveTouch = useCallback((touch: Pick<Touch, 'clientX' | 'clientY'>, preventDefault?: () => void) => {
+  const moveTouch = useCallback((touch: TouchPoint, preventDefault?: () => void) => {
+    if (touchIdentifierRef.current !== null && touch.identifier !== touchIdentifierRef.current) return;
+    latestTouchPointRef.current = { x: touch.clientX, y: touch.clientY };
     const activeId = activeIdRef.current;
     const start = startPointRef.current;
     if (!activeId && start) {
@@ -53,10 +62,14 @@ export function useTouchDragPluginGroup(params: UseTouchDragPluginGroupParams) {
     params.onDragReorderPreview(activeId, point);
   }, [clearLongPressTimer, params]);
 
-  const finishTouch = useCallback((touch?: Pick<Touch, 'clientX' | 'clientY'>) => {
+  const finishTouch = useCallback((touch?: TouchPoint) => {
+    if (touch && touchIdentifierRef.current !== null && touch.identifier !== touchIdentifierRef.current) return;
     clearLongPressTimer();
     const activeId = activeIdRef.current;
     if (!activeId) {
+      startPointRef.current = null;
+      latestTouchPointRef.current = null;
+      touchIdentifierRef.current = null;
       params.onDragCancel();
       return;
     }
@@ -64,6 +77,8 @@ export function useTouchDragPluginGroup(params: UseTouchDragPluginGroupParams) {
     params.onDragEnd(activeId, point);
     activeIdRef.current = null;
     startPointRef.current = null;
+    latestTouchPointRef.current = null;
+    touchIdentifierRef.current = null;
     setTouchGhost(null);
   }, [clearLongPressTimer, params]);
 
