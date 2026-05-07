@@ -450,13 +450,15 @@ export default function BoardPage() {
   const touchGhost = touchDragPluginGroup.touchGhost;
 
 
-  function pickTrackedTouch(touches: TouchList | null | undefined): Touch | null {
+  function pickTrackedTouch(
+    touches: React.TouchList | TouchList | null | undefined,
+  ): globalThis.Touch | null {
     if (!touches || touches.length === 0) return null;
     const tracked = activeTouchIdentifierRef.current;
-    if (tracked === null) return touches[0] ?? null;
+    if (tracked === null) return (touches.item(0) as globalThis.Touch | null) ?? null;
     for (let i = 0; i < touches.length; i += 1) {
       const touch = touches.item(i);
-      if (touch && touch.identifier === tracked) return touch;
+      if (touch && touch.identifier === tracked) return touch as globalThis.Touch;
     }
     return null;
   }
@@ -467,7 +469,7 @@ export default function BoardPage() {
     touchDragPluginGroup.onTouchMoveCard(touch, () => e.preventDefault());
   }
 
-  function finishTouchDrag(touch?: Pick<Touch, 'identifier' | 'clientX' | 'clientY'>) {
+  function finishTouchDrag(touch?: Pick<globalThis.Touch, 'identifier' | 'clientX' | 'clientY'>) {
     touchDragPluginGroup.onTouchEndCard(touch);
   }
 
