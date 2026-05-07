@@ -1,5 +1,6 @@
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { ChatOpenAI } from '@langchain/openai';
+import { createThinkFilter } from '@/lib/stream-filter';
 
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'qwen/qwen3-235b-a22b';
@@ -14,7 +15,7 @@ const ACTION_INSTRUCTIONS: Record<AIAction, string> = {
   comment: 'Generate one professional progress comment suitable for issue updates.',
 };
 
-function normalizeSuggestions(text: string, action: AIAction): string[] {
+export function normalizeSuggestions(text: string, action: AIAction): string[] {
   if (action === 'subtasks') {
     const lines = text
       .split('\n')
@@ -27,7 +28,7 @@ function normalizeSuggestions(text: string, action: AIAction): string[] {
   return [text.trim()];
 }
 
-function pickApiKey(userProvidedApiKey?: string) {
+export function pickApiKey(userProvidedApiKey?: string) {
   const trimmedUserKey = userProvidedApiKey?.trim();
   if (trimmedUserKey) return trimmedUserKey;
 
@@ -63,7 +64,9 @@ async function runActionWithLangChain(action: AIAction, payload: Record<string, 
     context: JSON.stringify(payload),
   });
 
-  const content = response.text?.trim();
+  const rawText = response.text ?? '';
+  const filter = createThinkFilter();
+  const content = filter(rawText).trim();
   if (!content) {
     throw new Error('NVIDIA API returned empty completion content');
   }
