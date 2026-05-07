@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Circle, CircleDot, CheckCircle2, GripVertical, List, LayoutGrid } from 'lucide-react';
 import { Issue, IssueStatus } from '@/lib/types';
@@ -82,6 +82,9 @@ export default function BoardPage() {
   const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const autoScrollFrame = useRef<number | null>(null);
   const autoScrollVelocity = useRef(0);
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const prevPositions = useRef<Map<string, DOMRect>>(new Map());
+  const draggingCardHeight = useRef<number>(76);
 
   useEffect(() => {
     fetch('/api/issues')
@@ -115,6 +118,30 @@ export default function BoardPage() {
     }
     return COLUMNS.map((col) => ({ ...col, items: issuesWithPreviewOrder.filter((i) => i.status === col.key) }));
   }, [displayIssues, draggingId, hoverTarget]);
+
+  function snapshotPositions() {
+    cardRefs.current.forEach((el, id) => {
+      prevPositions.current.set(id, el.getBoundingClientRect());
+    });
+  }
+
+  // FLIP: animate cards from their pre-render positions to their new positions
+  useLayoutEffect(() => {
+    cardRefs.current.forEach((el, id) => {
+      const prev = prevPositions.current.get(id);
+      if (!prev) return;
+      const next = el.getBoundingClientRect();
+      const dy = prev.top - next.top;
+      if (Math.abs(dy) < 1) return;
+      el.animate(
+        [{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }],
+        { duration: 220, easing: 'cubic-bezier(0.2, 0, 0, 1)', fill: 'none' },
+      );
+    });
+    cardRefs.current.forEach((el, id) => {
+      prevPositions.current.set(id, el.getBoundingClientRect());
+    });
+  }, [grouped]);
 
   function stopAutoScroll() {
     if (autoScrollFrame.current !== null) {
@@ -173,6 +200,9 @@ export default function BoardPage() {
   useEffect(() => () => stopAutoScroll(), []);
 
   function onDragStart(id: string, e: React.DragEvent) {
+    snapshotPositions();
+    const cardEl = cardRefs.current.get(id);
+    if (cardEl) draggingCardHeight.current = cardEl.getBoundingClientRect().height;
     setDraggingId(id);
     autoScrollVelocity.current = 0;
 
@@ -199,6 +229,7 @@ export default function BoardPage() {
 
   function onDrop(colKey: IssueStatus) {
     if (!draggingId) return;
+    snapshotPositions();
     setLocalOverrides((prev) => ({ ...prev, [draggingId]: colKey }));
     setDraggingId(null);
     setDragOverCol(null);
@@ -211,6 +242,7 @@ export default function BoardPage() {
 
   function onDragEnd() {
     stopAutoScroll();
+    snapshotPositions();
     setDraggingId(null);
     setDragOverCol(null);
     setHoverTarget(null);
@@ -265,6 +297,9 @@ export default function BoardPage() {
     touchStartPoint.current = { x: touch.clientX, y: touch.clientY };
     clearLongPressTimer();
     longPressTimer.current = setTimeout(() => {
+      const cardEl = cardRefs.current.get(id);
+      if (cardEl) draggingCardHeight.current = cardEl.getBoundingClientRect().height;
+      snapshotPositions();
       touchDraggingId.current = id;
       setDraggingId(id);
       setTouchGhost({ x: touch.clientX, y: touch.clientY });
@@ -290,7 +325,11 @@ export default function BoardPage() {
     const hoverEl = document.elementFromPoint(touch.clientX, touch.clientY)?.closest<HTMLElement>('[data-issue-id]');
     if (hoverEl && hoverEl.dataset.issueId && hoverEl.dataset.issueId !== activeId) {
       const rect = hoverEl.getBoundingClientRect();
-      setHoverTarget({ targetId: hoverEl.dataset.issueId, placeAfter: touch.clientY > rect.top + rect.height / 2 });
+      const newTarget = { targetId: hoverEl.dataset.issueId, placeAfter: touch.clientY > rect.top + rect.height / 2 };
+      if (!hoverTarget || hoverTarget.targetId !== newTarget.targetId || hoverTarget.placeAfter !== newTarget.placeAfter) {
+        snapshotPositions();
+        setHoverTarget(newTarget);
+      }
     }
   }
 
@@ -314,6 +353,7 @@ export default function BoardPage() {
       }).catch(() => {});
     }
     stopAutoScroll();
+    snapshotPositions();
     touchDraggingId.current = null;
     touchStartPoint.current = null;
     setTouchGhost(null);
@@ -323,6 +363,7 @@ export default function BoardPage() {
   }
 
   const touchGhostIssue = touchGhost && draggingId ? displayIssues.find((item) => item.id === draggingId) : null;
+  const touchGhostAssignee = touchGhostIssue?.assigneeId ? users.find((u) => u.id === touchGhostIssue.assigneeId) : null;
 
   return (
     <div className="-mx-4 -mt-4">
@@ -400,7 +441,8 @@ export default function BoardPage() {
                         <div
                           key={issue.id}
                           data-issue-id={issue.id}
-                          className="rounded-xl border-2 border-dashed border-indigo-300/70 bg-indigo-50/40 min-h-[76px] transition-all duration-200"
+                          className="rounded-xl border-2 border-dashed border-indigo-300/70 bg-indigo-50/40"
+                          style={{ height: draggingCardHeight.current }}
                         />
                       );
                     }
@@ -410,6 +452,7 @@ export default function BoardPage() {
                         key={issue.id}
                         data-issue-id={issue.id}
                         draggable
+                        ref={(el) => { if (el) cardRefs.current.set(issue.id, el); else cardRefs.current.delete(issue.id); }}
                         onDragStart={(e) => onDragStart(issue.id, e)}
                         onDragEnd={onDragEnd}
                         onDragOver={(e) => e.preventDefault()}
@@ -428,7 +471,9 @@ export default function BoardPage() {
                         onDragEnter={(e) => {
                           if (!draggingId || draggingId === issue.id) return;
                           const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                          setHoverTarget({ targetId: issue.id, placeAfter: e.clientY > rect.top + rect.height / 2 });
+                          const placeAfter = e.clientY > rect.top + rect.height / 2;
+                          snapshotPositions();
+                          setHoverTarget({ targetId: issue.id, placeAfter });
                         }}
                         className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all duration-200 touch-none select-none [-webkit-touch-callout:none] hover:-translate-y-0.5 hover:shadow-md`}
                       >
@@ -505,23 +550,34 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* Touch drag ghost */}
+      {/* Touch drag ghost — full card replica following the finger */}
       {touchGhost && touchGhostIssue && (
         <div
-          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white px-3 py-2.5 shadow-2xl rotate-2 opacity-95"
+          className="pointer-events-none fixed z-50 rounded-xl bg-white p-3 shadow-2xl opacity-95"
           style={{
             left: touchGhost.x,
             top: touchGhost.y,
+            width: 230,
+            transform: 'translateX(-50%) translateY(-80%) rotate(3deg)',
             border: '1px solid #e2e8f0',
             borderLeft: '3px solid #6366f1',
           }}
         >
-          <div className="flex items-start gap-2">
+          <div className="flex items-start justify-between mb-2">
             <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${PRIORITY_DOT[touchGhostIssue.priority]}`} />
-            <p className="max-w-[200px] text-xs font-semibold text-slate-800 leading-snug line-clamp-2">
-              {touchGhostIssue.title}
-            </p>
+            <GripVertical size={13} className="text-slate-300 -mr-0.5" />
           </div>
+          <p className="text-[13px] font-semibold text-slate-800 leading-snug line-clamp-2">
+            {touchGhostIssue.title}
+          </p>
+          {touchGhostAssignee && (
+            <div className="mt-2.5 flex items-center gap-1.5">
+              <div className="h-5 w-5 rounded-full bg-indigo-100 flex items-center justify-center text-[8px] font-bold text-indigo-700">
+                {getInitials(touchGhostAssignee.name)}
+              </div>
+              <span className="text-[10px] text-slate-500 truncate">{touchGhostAssignee.name.split(' ')[0]}</span>
+            </div>
+          )}
         </div>
       )}
     </div>
