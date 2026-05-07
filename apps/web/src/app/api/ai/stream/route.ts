@@ -14,6 +14,11 @@ const ACTION_INSTRUCTIONS: Record<string, string> = {
   comment: 'Write one professional progress comment suitable for posting on this issue. It should sound like a human engineer wrote it.',
 };
 
+const CHANNEL_INSTRUCTIONS: Record<string, string> = {
+  default: 'Normal production channel. Prioritize helpfulness and accuracy.',
+  smoke_test: 'Smoke test channel. Keep output short and deterministic. Start your response with "[SMOKE]".',
+};
+
 function buildSystemPrompt(issue: { title: string; description: string; status: string; priority: string }) {
   return `You are an expert software delivery assistant helping engineering teams manage their work.
 
@@ -30,6 +35,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as {
       action?: string;
+      channel?: string;
       message?: string;
       title?: string;
       description?: string;
@@ -56,6 +62,8 @@ export async function POST(req: NextRequest) {
       priority: String(body.priority ?? ''),
     };
 
+    const channel = body.channel === 'smoke_test' ? 'smoke_test' : 'default';
+
     let userMessage: string;
     if (body.action && ACTION_INSTRUCTIONS[body.action]) {
       userMessage = ACTION_INSTRUCTIONS[body.action];
@@ -68,7 +76,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const messages = [new SystemMessage(buildSystemPrompt(issueContext)), new HumanMessage(userMessage)];
+    const messages = [
+      new SystemMessage(`${buildSystemPrompt(issueContext)}\n\nChannel mode:\n${CHANNEL_INSTRUCTIONS[channel]}`),
+      new HumanMessage(userMessage),
+    ];
     const encoder = new TextEncoder();
     const filter = createThinkFilter();
 

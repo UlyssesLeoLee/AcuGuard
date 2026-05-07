@@ -5,6 +5,7 @@ import { Sparkles, Send, Square, ChevronDown, Check, Loader2 } from 'lucide-reac
 import { Issue, IssuePriority, Project } from '@/lib/types';
 
 type ActionType = 'summary' | 'subtasks' | 'priority' | 'comment';
+type ChatChannel = 'default' | 'smoke_test';
 
 interface ChatMessage {
   id: string;
@@ -67,6 +68,7 @@ export default function AIPage() {
   const [input, setInput] = useState('');
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState(DEFAULT_NVIDIA_API_KEY);
+  const [channel, setChannel] = useState<ChatChannel>('default');
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -151,6 +153,7 @@ export default function AIPage() {
         },
         body: JSON.stringify({
           action,
+          channel,
           message: action ? undefined : content,
           title: selectedIssue.title,
           description: selectedIssue.description,
@@ -473,6 +476,35 @@ export default function AIPage() {
               {emoji} {label}
             </button>
           ))}
+        </div>
+
+        <div className="mb-3">
+          <label className="mb-1 block text-xs font-medium text-slate-500">Chat Channel</label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setChannel('default')}
+              className={`rounded-lg px-2 py-1 text-[11px] font-medium ${
+                channel === 'default'
+                  ? 'bg-indigo-100 text-indigo-700'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              Default
+            </button>
+            <button
+              onClick={() => setChannel('smoke_test')}
+              className={`rounded-lg px-2 py-1 text-[11px] font-medium ${
+                channel === 'smoke_test'
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              Smoke Test
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Smoke Test channel is for early AI feature sanity checks.
+          </p>
         </div>
 
         <div className="mb-3">
