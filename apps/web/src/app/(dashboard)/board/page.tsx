@@ -398,7 +398,7 @@ export default function BoardPage() {
     }, 300);
   }
 
-  function handleTouchMove(touch: Touch, preventDefault?: () => void) {
+  function handleTouchMove(touch: Pick<Touch, 'clientX' | 'clientY'>, preventDefault?: () => void) {
     if (!touch) return;
     const activeId = touchDraggingId.current;
     const start = touchStartPoint.current;
@@ -433,14 +433,14 @@ export default function BoardPage() {
     handleTouchMove(touch, () => e.preventDefault());
   }
 
-  function finishTouchDrag(touch?: Touch) {
+  function finishTouchDrag(touch?: Pick<Touch, 'clientX' | 'clientY'>) {
     clearLongPressTimer();
     const activeId = touchDraggingId.current;
     if (!activeId) return;
     const dropElement = touch
       ? document.elementFromPoint(touch.clientX, touch.clientY)?.closest<HTMLElement>('[data-issue-id]')
       : null;
-    if (dropElement && dropElement.dataset.issueId !== activeId) {
+    if (touch && dropElement && dropElement.dataset.issueId !== activeId) {
       const rect = dropElement.getBoundingClientRect();
       reorderByTarget(activeId, dropElement.dataset.issueId ?? null, touch.clientY > rect.top + rect.height / 2);
     }
