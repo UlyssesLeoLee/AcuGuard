@@ -59,7 +59,6 @@ export function useTouchDragPluginGroup(params: UseTouchDragPluginGroupParams) {
     const point = { x: touch.clientX, y: touch.clientY };
     params.onDragMove(activeId, point);
     setTouchGhost({ x: touch.clientX - ghostOffsetRef.current.x, y: touch.clientY - ghostOffsetRef.current.y });
-    params.onDragReorderPreview(activeId, point);
   }, [clearLongPressTimer, params]);
 
   const finishTouch = useCallback((touch?: TouchPoint) => {
