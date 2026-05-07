@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { createThinkFilter } from '@/lib/stream-filter';
 
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'qwen/qwen3-235b-a22b';
@@ -23,60 +24,6 @@ Priority: ${issue.priority || 'unknown'}
 Description: ${issue.description || 'No description provided'}
 
 Respond concisely and professionally. Return plain text only — no markdown headers, no bullet symbols, no bold formatting.`;
-}
-
-function createThinkFilter() {
-  let buffer = '';
-  let inThink = false;
-
-  return function filter(chunk: string): string {
-    buffer += chunk;
-    let output = '';
-
-    while (buffer.length > 0) {
-      if (!inThink) {
-        const thinkIdx = buffer.indexOf('<think>');
-        if (thinkIdx === -1) {
-          // No think tag found — emit everything except a possible partial tag at the end
-          const tag = '<think>';
-          let safeLen = buffer.length;
-          for (let i = 1; i < tag.length; i++) {
-            if (buffer.endsWith(tag.slice(0, i))) {
-              safeLen = buffer.length - i;
-              break;
-            }
-          }
-          output += buffer.slice(0, safeLen);
-          buffer = buffer.slice(safeLen);
-          break;
-        } else {
-          output += buffer.slice(0, thinkIdx);
-          buffer = buffer.slice(thinkIdx + '<think>'.length);
-          inThink = true;
-        }
-      } else {
-        const endIdx = buffer.indexOf('</think>');
-        if (endIdx === -1) {
-          // Still inside think block — keep only possible partial closing tag
-          const tag = '</think>';
-          let safeDiscardLen = buffer.length;
-          for (let i = 1; i < tag.length; i++) {
-            if (buffer.endsWith(tag.slice(0, i))) {
-              safeDiscardLen = buffer.length - i;
-              break;
-            }
-          }
-          buffer = buffer.slice(safeDiscardLen);
-          break;
-        } else {
-          buffer = buffer.slice(endIdx + '</think>'.length);
-          inThink = false;
-        }
-      }
-    }
-
-    return output;
-  };
 }
 
 export async function POST(req: NextRequest) {
