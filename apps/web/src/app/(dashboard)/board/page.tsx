@@ -430,7 +430,7 @@ export default function BoardPage() {
     touchDragPluginGroup.onTouchMoveCard(touch, () => e.preventDefault());
   }
 
-  function finishTouchDrag(touch?: Pick<Touch, 'clientX' | 'clientY'>) {
+  function finishTouchDrag(touch?: Pick<Touch, 'identifier' | 'clientX' | 'clientY'>) {
     touchDragPluginGroup.onTouchEndCard(touch);
   }
 
