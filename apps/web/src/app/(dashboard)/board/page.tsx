@@ -398,8 +398,7 @@ export default function BoardPage() {
     }, 300);
   }
 
-  function onTouchMove(e: React.TouchEvent) {
-    const touch = e.touches[0];
+  function handleTouchMove(touch: Touch, preventDefault?: () => void) {
     if (!touch) return;
     const activeId = touchDraggingId.current;
     const start = touchStartPoint.current;
@@ -408,7 +407,7 @@ export default function BoardPage() {
       if (moved > 8) clearLongPressTimer();
     }
     if (!activeId) return;
-    e.preventDefault();
+    preventDefault?.();
     cursorRef.current = { x: touch.clientX, y: touch.clientY };
     updateAutoScroll(touch.clientX);
     if (touchGhostRef.current) {
@@ -428,11 +427,16 @@ export default function BoardPage() {
     }
   }
 
-  function onTouchEnd(e: React.TouchEvent) {
+  function onTouchMove(e: React.TouchEvent) {
+    const touch = e.touches[0];
+    if (!touch) return;
+    handleTouchMove(touch, () => e.preventDefault());
+  }
+
+  function finishTouchDrag(touch?: Touch) {
     clearLongPressTimer();
     const activeId = touchDraggingId.current;
     if (!activeId) return;
-    const touch = e.changedTouches[0];
     const dropElement = touch
       ? document.elementFromPoint(touch.clientX, touch.clientY)?.closest<HTMLElement>('[data-issue-id]')
       : null;
@@ -459,6 +463,31 @@ export default function BoardPage() {
     setDragOverCol(null);
     setHoverTarget(null);
   }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    finishTouchDrag(e.changedTouches[0]);
+  }
+
+  useEffect(() => {
+    if (!draggingId || !touchDraggingId.current) return;
+    const onWindowTouchMove = (event: TouchEvent) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      event.preventDefault();
+      handleTouchMove(touch);
+    };
+    const onWindowTouchEnd = (event: TouchEvent) => {
+      finishTouchDrag(event.changedTouches[0]);
+    };
+    window.addEventListener('touchmove', onWindowTouchMove, { passive: false });
+    window.addEventListener('touchend', onWindowTouchEnd, { passive: false });
+    window.addEventListener('touchcancel', onWindowTouchEnd, { passive: false });
+    return () => {
+      window.removeEventListener('touchmove', onWindowTouchMove);
+      window.removeEventListener('touchend', onWindowTouchEnd);
+      window.removeEventListener('touchcancel', onWindowTouchEnd);
+    };
+  }, [draggingId, dragOverCol, hoverTarget]);
 
   const touchGhostIssue = touchGhost && draggingId
     ? displayIssues.find((item) => item.id === draggingId)
