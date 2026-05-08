@@ -1,7 +1,7 @@
 'use client';
 
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, Send, Square, ChevronDown, Check, Loader2 } from 'lucide-react';
+import { Sparkles, Send, Square, ChevronDown, Check, Loader2, Settings, X, Eye, EyeOff } from 'lucide-react';
 import { Issue, IssuePriority, Project } from '@/lib/types';
 
 type ActionType = 'summary' | 'subtasks' | 'priority' | 'comment';
@@ -67,15 +67,45 @@ export default function AIPage() {
   const [streamText, setStreamText] = useState('');
   const [input, setInput] = useState('');
   const [applyingId, setApplyingId] = useState<string | null>(null);
-  const [apiKeyInput, setApiKeyInput] = useState(DEFAULT_NVIDIA_API_KEY);
+  const [apiKeyInput, setApiKeyInput] = useState('');
   const [channel, setChannel] = useState<ChatChannel>('default');
+  const [showSettings, setShowSettings] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [savedKey, setSavedKey] = useState<string>('');
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const streamTextRef = useRef('');
 
-  const userApiKey = useMemo(() => apiKeyInput.trim() || DEFAULT_NVIDIA_API_KEY, [apiKeyInput]);
+  const userApiKey = useMemo(() => {
+    if (typeof window === 'undefined') return DEFAULT_NVIDIA_API_KEY;
+    return window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() || DEFAULT_NVIDIA_API_KEY;
+  }, [savedKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim() || '';
+    setSavedKey(stored);
+    setApiKeyInput(stored);
+  }, []);
+
+  function saveApiKey() {
+    const trimmed = apiKeyInput.trim();
+    if (trimmed) {
+      window.localStorage.setItem(API_KEY_STORAGE_KEY, trimmed);
+    } else {
+      window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+    }
+    setSavedKey(trimmed);
+    setShowSettings(false);
+  }
+
+  function clearApiKey() {
+    window.localStorage.removeItem(API_KEY_STORAGE_KEY);
+    setApiKeyInput('');
+    setSavedKey('');
+  }
 
   const selectedIssue = useMemo(
     () => allIssues.find((i) => i.id === selectedIssueId),
@@ -85,12 +115,6 @@ export default function AIPage() {
     () => (selectedIssue ? projects.find((p) => p.id === selectedIssue.projectId) : null),
     [projects, selectedIssue],
   );
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const storedKey = window.localStorage.getItem(API_KEY_STORAGE_KEY)?.trim();
-    setApiKeyInput(storedKey || DEFAULT_NVIDIA_API_KEY);
-  }, []);
 
   useEffect(() => {
     fetch('/api/issues')
@@ -262,6 +286,70 @@ export default function AIPage() {
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100svh - 57px)' }}>
+      {/* Settings panel overlay */}
+      {showSettings && (
+        <div className="absolute inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-16">
+          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <p className="text-sm font-semibold text-slate-800">API 设置</p>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="px-4 py-4 space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-600">
+                  NVIDIA API Key
+                </label>
+                <div className="relative">
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    placeholder="nvapi-…（留空使用默认）"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 pr-10 text-sm text-slate-700 placeholder-slate-400 focus:border-indigo-300 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-400">
+                  使用自己的 Key 可避免共享限额。
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={saveApiKey}
+                  className="flex-1 rounded-xl bg-indigo-600 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                >
+                  保存
+                </button>
+                {savedKey && (
+                  <button
+                    onClick={clearApiKey}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-500 hover:border-red-200 hover:text-red-500"
+                  >
+                    清除
+                  </button>
+                )}
+              </div>
+              {savedKey && (
+                <p className="text-[11px] text-emerald-600 flex items-center gap-1">
+                  <Check size={11} /> 已使用自定义 Key
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="shrink-0 border-b border-slate-100 bg-white px-4 py-3">
         <div className="flex items-center gap-3">
@@ -331,6 +419,19 @@ export default function AIPage() {
               </div>
             )}
           </div>
+
+          {/* Settings button */}
+          <button
+            onClick={() => setShowSettings((v) => !v)}
+            className={`shrink-0 flex h-9 w-9 items-center justify-center rounded-xl border transition-colors ${
+              savedKey
+                ? 'border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                : 'border-slate-200 bg-slate-50 text-slate-400 hover:border-slate-300 hover:text-slate-600'
+            }`}
+            title="API 设置"
+          >
+            <Settings size={15} />
+          </button>
         </div>
       </div>
 
