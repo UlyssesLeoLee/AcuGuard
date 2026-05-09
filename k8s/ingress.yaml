@@ -1,0 +1,70 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: acuguard-ingress
+  namespace: acuguard
+  annotations:
+    # NGINX Ingress Controller (install with: kubectl apply -f
+    # https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/baremetal/deploy.yaml)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    # Enable SSE (AI streaming) — disable buffering on AI routes
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location ~* ^/api/ai/ {
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_set_header X-Accel-Buffering no;
+      }
+spec:
+  ingressClassName: nginx
+  rules:
+    # ── LAN hostname ─────────────────────────────────────────────────────────
+    # Add "192.168.x.x  acuguard.lan" to /etc/hosts on client machines,
+    # or configure your LAN DNS server to resolve acuguard.lan.
+    - host: acuguard.lan
+      http:
+        paths:
+          # Rust API handles core CRUD — routed first (more specific prefix)
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8080
+          - path: /api/users
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8080
+          - path: /api/projects
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8080
+          - path: /api/issues
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8080
+          - path: /api/comments
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8080
+          # Everything else (frontend + AI routes) → Next.js
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 3000
