@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: acuguard-config
+  namespace: acuguard
+data:
+  NVIDIA_BASE_URL: "https://integrate.api.nvidia.com/v1"
+  NVIDIA_MODEL: "qwen/qwen3-235b-a22b"
+  BIND_ADDR: "0.0.0.0:8080"
+  POSTGRES_DB: "acuguard"
+  POSTGRES_USER: "acuguard"
+---
+# ⚠️  Replace all values below before deploying. Never commit real secrets.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: acuguard-secrets
+  namespace: acuguard
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "CHANGE_ME"
+  JWT_SECRET: "CHANGE_ME_USE_LONG_RANDOM_STRING"
+  NVIDIA_API_KEY: "CHANGE_ME"
