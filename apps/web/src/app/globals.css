@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@utility no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility pb-safe-bottom {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
+}
+
+@utility pt-safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background-color: #0f1117;
+  color: #f1f5f9;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#__next,
+main {
+  height: 100%;
+}

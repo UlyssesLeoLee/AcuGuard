@@ -1,0 +1,210 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Circle, CircleDot, CheckCircle2, GripVertical, LayoutGrid, List } from 'lucide-react';
+import type { Issue, IssueStatus } from '@/lib/types';
+import { mockUsers as users } from '@/lib/mock-data';
+import { IssueService } from '@/services/issue.service';
+import { getInitials, formatRelativeTime } from '@/lib/utils';
+import { useEvent } from '@/framework/events/useEvent';
+import { E } from '@/framework/events/events';
+
+type ViewMode = 'kanban' | 'list';
+
+interface ColDef {
+  key: IssueStatus;
+  label: string;
+  Icon: React.FC<{ size?: number; className?: string; strokeWidth?: number }>;
+  headerBg: string;
+  headerText: string;
+  accentBorder: string;
+}
+
+const COLS: ColDef[] = [
+  { key: 'todo',        label: 'To Do',       Icon: Circle,       headerBg: 'bg-slate-50',    headerText: 'text-slate-600',   accentBorder: 'border-l-slate-300' },
+  { key: 'in_progress', label: 'In Progress',  Icon: CircleDot,    headerBg: 'bg-blue-50',     headerText: 'text-blue-700',    accentBorder: 'border-l-blue-500' },
+  { key: 'done',        label: 'Done',         Icon: CheckCircle2, headerBg: 'bg-emerald-50',  headerText: 'text-emerald-700', accentBorder: 'border-l-emerald-500' },
+];
+
+const PRIORITY_DOT: Record<Issue['priority'], string> = {
+  high: 'bg-rose-500', medium: 'bg-amber-400', low: 'bg-slate-300',
+};
+const STATUS_ICON_COLOR: Record<IssueStatus, string> = {
+  todo: 'text-slate-400', in_progress: 'text-blue-500', done: 'text-emerald-500',
+};
+
+export interface KanbanBoardProps {
+  projectId?: string;
+}
+
+/** Plugin: KanbanBoard — draggable Kanban with list-view toggle. */
+export function KanbanBoard({ projectId }: KanbanBoardProps) {
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [view, setView] = useState<ViewMode>('kanban');
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<IssueStatus | null>(null);
+  const [localStatus, setLocalStatus] = useState<Record<string, IssueStatus>>({});
+
+  useEffect(() => {
+    IssueService.list(projectId ? { projectId } : undefined).then(setIssues);
+  }, [projectId]);
+
+  // Re-add newly created issues to the board
+  useEvent<{ issue: Issue }>(E.ISSUE_CREATED, ({ issue }) => {
+    if (!projectId || issue.projectId === projectId) {
+      setIssues((prev) => [issue, ...prev]);
+    }
+  });
+
+  const display = useMemo(
+    () => issues.map((i) => ({ ...i, status: localStatus[i.id] ?? i.status })),
+    [issues, localStatus],
+  );
+
+  const grouped = useMemo(
+    () => COLS.map((col) => ({ ...col, items: display.filter((i) => i.status === col.key) })),
+    [display],
+  );
+
+  function onDrop(colKey: IssueStatus) {
+    if (!draggingId) return;
+    setLocalStatus((prev) => ({ ...prev, [draggingId]: colKey }));
+    IssueService.update({ id: draggingId, status: colKey }, 'user');
+    setDraggingId(null);
+    setDragOverCol(null);
+  }
+
+  return (
+    <div className="-mx-4 -mt-4">
+      {/* Toolbar */}
+      <div className="sticky top-[57px] z-20 bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between">
+        <h1 className="text-[17px] font-bold text-slate-900">Board</h1>
+        <div className="flex rounded-xl bg-slate-100 p-1 gap-0.5">
+          {([['kanban', LayoutGrid, 'Kanban'], ['list', List, 'List']] as const).map(([mode, Icon, label]) => (
+            <button
+              key={mode}
+              onClick={() => setView(mode)}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                view === mode ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+              }`}
+            >
+              <Icon size={13} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {view === 'kanban' ? (
+        <div className="flex gap-3 px-4 py-4 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+          {grouped.map((col) => {
+            const ColIcon = col.Icon;
+            const isTarget = dragOverCol === col.key;
+            return (
+              <div
+                key={col.key}
+                className={`shrink-0 w-[78vw] max-w-[300px] snap-center rounded-2xl border-2 transition-colors ${
+                  isTarget ? 'border-indigo-400 bg-indigo-50/60' : 'border-slate-200 bg-white/60'
+                }`}
+                onDragOver={(e) => { e.preventDefault(); setDragOverCol(col.key); }}
+                onDrop={() => onDrop(col.key)}
+                onDragLeave={() => setDragOverCol(null)}
+              >
+                <div className={`flex items-center justify-between rounded-t-2xl px-3.5 py-3 ${col.headerBg}`}>
+                  <div className="flex items-center gap-1.5">
+                    <ColIcon size={14} className={col.headerText} strokeWidth={2} />
+                    <span className={`text-xs font-bold ${col.headerText}`}>{col.label}</span>
+                  </div>
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-white/70 px-1.5 text-[10px] font-bold text-slate-600">
+                    {col.items.length}
+                  </span>
+                </div>
+
+                <div className="space-y-2 p-2.5 min-h-[120px]">
+                  {col.items.map((issue) => {
+                    const assignee = issue.assigneeId ? users.find((u) => u.id === issue.assigneeId) : null;
+                    const isDragging = draggingId === issue.id;
+                    return (
+                      <div
+                        key={issue.id}
+                        draggable
+                        onDragStart={() => setDraggingId(issue.id)}
+                        onDragEnd={() => { setDraggingId(null); setDragOverCol(null); }}
+                        className={`rounded-xl bg-white border border-slate-100 border-l-2 ${col.accentBorder} p-3 shadow-sm cursor-grab active:cursor-grabbing transition-all ${
+                          isDragging ? 'opacity-40 scale-95 rotate-1' : 'hover:-translate-y-0.5 hover:shadow-md'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className={`mt-0.5 h-2 w-2 rounded-full ${PRIORITY_DOT[issue.priority]}`} />
+                          <GripVertical size={13} className="text-slate-300 -mr-0.5" />
+                        </div>
+                        <Link href={`/issues/${issue.id}`}>
+                          <p className="text-[13px] font-semibold text-slate-800 leading-snug line-clamp-2 hover:text-indigo-600 transition-colors">
+                            {issue.title}
+                          </p>
+                        </Link>
+                        {assignee && (
+                          <div className="mt-2.5 flex items-center gap-1.5">
+                            <div className="h-5 w-5 rounded-full bg-indigo-100 flex items-center justify-center text-[8px] font-bold text-indigo-700">
+                              {getInitials(assignee.name)}
+                            </div>
+                            <span className="text-[10px] text-slate-500 truncate">{assignee.name.split(' ')[0]}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {col.items.length === 0 && (
+                    <div className="flex items-center justify-center py-8">
+                      <p className="text-xs text-slate-400">Drop issues here</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="px-4 py-3 space-y-5">
+          {grouped.map((col) => {
+            const ColIcon = col.Icon;
+            if (col.items.length === 0) return null;
+            return (
+              <div key={col.key}>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <ColIcon size={14} className={STATUS_ICON_COLOR[col.key]} strokeWidth={2} />
+                  <span className="text-xs font-bold text-slate-600">{col.label}</span>
+                  <span className="text-xs text-slate-400">({col.items.length})</span>
+                </div>
+                <div className="space-y-2">
+                  {col.items.map((issue) => {
+                    const assignee = issue.assigneeId ? users.find((u) => u.id === issue.assigneeId) : null;
+                    return (
+                      <Link
+                        key={issue.id}
+                        href={`/issues/${issue.id}`}
+                        className="flex items-center gap-3 rounded-2xl bg-white p-3.5 border border-slate-100 shadow-sm active:scale-[0.99] transition-all"
+                      >
+                        <div className={`h-2 w-2 rounded-full shrink-0 ${PRIORITY_DOT[issue.priority]}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[14px] font-medium text-slate-900 truncate">{issue.title}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">{formatRelativeTime(issue.updatedAt)}</p>
+                        </div>
+                        {assignee && (
+                          <div className="h-6 w-6 shrink-0 rounded-full bg-indigo-100 flex items-center justify-center text-[8px] font-bold text-indigo-700">
+                            {getInitials(assignee.name)}
+                          </div>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
